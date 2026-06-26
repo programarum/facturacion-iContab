@@ -46,7 +46,7 @@ const FacturacionPage = () => {
   const [facturaCreada, setFacturaCreada] = useState<any>(null);
 
   const [formCliente, setFormCliente] = useState({
-    tipo_identificacion: 'CC',
+    tipo_identificacion: '13',
     numero_identificacion: '',
     nombre: '',
     razon_social: '',
@@ -153,7 +153,7 @@ const FacturacionPage = () => {
       setClientes([...clientes, nuevo]);
       setClienteSeleccionado(nuevo.id);
       setShowNuevoCliente(false);
-      setFormCliente({ tipo_identificacion: 'CC', numero_identificacion: '', nombre: '', razon_social: '', direccion: '', telefono: '', email: '' });
+      setFormCliente({ tipo_identificacion: '13', numero_identificacion: '', nombre: '', razon_social: '', direccion: '', telefono: '', email: '' });
     } catch (err: any) {
       setError(err.message);
     }
@@ -368,15 +368,21 @@ const FacturacionPage = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold mb-4">Nuevo Cliente</h2>
+                  {error && (
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+          {error}
+          <button onClick={() => setError('')} className="float-right font-bold">x</button>
+        </div>
+      )}
             <form onSubmit={handleCrearCliente} className="space-y-3">
               <div>
                 <label className="block text-sm font-medium mb-1">Tipo ID *</label>
                 <select value={formCliente.tipo_identificacion} onChange={(e) => setFormCliente({ ...formCliente, tipo_identificacion: e.target.value })} className="w-full border rounded px-3 py-2">
-                  <option value="CC">Cedula Ciudadania</option>
-                  <option value="NIT">NIT</option>
-                  <option value="CE">Cedula Extranjeria</option>
-                  <option value="TI">Tarjeta Identidad</option>
-                  <option value="PA">Pasaporte</option>
+                  <option value="13">Cedula Ciudadania</option>
+                  <option value="31">NIT</option>
+                  <option value="22">Cedula Extranjeria</option>
+                  <option value="12">Tarjeta Identidad</option>
+                  <option value="41">Pasaporte</option>
                 </select>
               </div>
               <div>

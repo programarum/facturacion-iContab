@@ -18,12 +18,13 @@ const MainLayout = ({ children }: MainLayoutProps) => {
   };
 
   const menuItems = [
-    { path: '/dashboard', label: 'Dashboard', icon: '📊' },
-    { path: '/productos', label: 'Productos', icon: '📦' },
-    { path: '/categorias', label: 'Categorías', icon: '📂' },
-    { path: '/movimientos', label: 'Movimientos', icon: '🔄' },
+
     { path: '/facturacion', label: 'Facturación', icon: '🧾' },
     ...(user?.rol === 'admin' ? [
+      { path: '/dashboard', label: 'Dashboard', icon: '📊' },
+      { path: '/productos', label: 'Productos', icon: '📦' },
+      { path: '/categorias', label: 'Categorías', icon: '📂' },
+      { path: '/movimientos', label: 'Movimientos', icon: '🔄' },
       { path: '/usuarios', label: 'Usuarios', icon: '👥' },
     ] : []),
   ];
@@ -32,12 +33,12 @@ const MainLayout = ({ children }: MainLayoutProps) => {
     <div className="min-h-screen bg-gray-100 flex">
       {/* Sidebar */}
       <aside 
-        className={`bg-gray-900 text-white w-64 min-h-screen flex-shrink-0 transition-all duration-300 ${
+        className={`bg-gray-900 text-white w-64 min-h-screen shrink-0 transition-all duration-300 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         <div className="p-4">
-          <h1 className="text-2xl font-bold text-center">iContab</h1>
+          <h1 className="text-2xl font-bold text-center">Facturacion - iContab</h1>
           <p className="text-gray-400 text-sm text-center">Sistema de Facturación</p>
         </div>
 

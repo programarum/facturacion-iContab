@@ -25,7 +25,8 @@ const Login = () => {
       }
 
       await login(username, password);
-      navigate("/dashboard");
+      
+      navigate("/facturacion");
     } catch (err: any) {
       setIntentos((prev) => prev + 1);
 
