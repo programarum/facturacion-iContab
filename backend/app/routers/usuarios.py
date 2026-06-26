@@ -48,7 +48,7 @@ def crear_usuario(
             db=db,
             admin=current_user,
             nuevo_usuario=nuevo,
-            ip=request.client.host
+            ip=request.client.host if request.client else "unknown"
         )
         
         return nuevo
@@ -78,7 +78,7 @@ def editar_usuario(
             usuario=usuario,
             rol_anterior=rol_anterior,
             rol_nuevo=rol_nuevo,
-            ip=request.client.host
+            ip=request.client.host if request.client else "unknown"
         )
     
     # Si bloquea/desbloquea
@@ -89,7 +89,7 @@ def editar_usuario(
                 admin=current_user,
                 usuario=usuario,
                 razon="Bloqueo manual por administrador",
-                ip=request.client.host
+                ip=request.client.host if request.client else "unknown"
             )
     
     datos_dict = datos.dict(exclude_unset=True)
@@ -120,7 +120,7 @@ def admin_cambiar_password(
         entidad_id=usuario_id,
         entidad_nombre=usuario.username,
         descripcion=f"Contraseña cambiada por administrador",
-        ip_address=request.client.host,
+        ip_address=request.client.host if request.client else "unknown",
         exito=True
     )
     
