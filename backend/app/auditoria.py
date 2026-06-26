@@ -24,7 +24,8 @@ class AuditoriaService:
         user_agent: Optional[str] = None,
         exito: bool = True,
         error_mensaje: Optional[str] = None,
-        severidad: Severidad = Severidad.INFO
+        severidad: Severidad = Severidad.INFO,
+        commit: bool = True
     ) -> LogAuditoria:
         """
         Registra un evento de auditoría.
@@ -55,8 +56,9 @@ class AuditoriaService:
         )
         
         db.add(log)
-        db.commit()
-        db.refresh(log)
+        if commit:
+            db.commit()
+            db.refresh(log)
         
         return log
     

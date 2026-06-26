@@ -49,6 +49,7 @@ def get_usuarios(
     return query.offset(skip).limit(limit).all()
 
 def create_usuario(
+    
     db: Session,
     username: str,
     email: str,
@@ -116,7 +117,7 @@ def cambiar_password(
     usuario.password_hash = password_hash
     usuario.salt = salt
     usuario.ultimo_cambio_password = datetime.utcnow()
-    usuario.cambio_password_obligatorio = False
+    usuario.cambio_password_obligatorio = datetime.utcnow() + timedelta(days=90)  # Obligatorio cambiar cada 90 días
     db.commit()
     return True
 
@@ -453,7 +454,7 @@ def create_cliente(
     telefono: Optional[str] = None,
     email: Optional[str] = None,
     responsable_iva: bool = False,
-    regimen: str = "No responsable de IVA"
+    regimen: Optional[str] = "No responsable de IVA"
 ) -> Cliente:
     # Verificar duplicado
     if get_cliente_by_identificacion(db, numero_identificacion):
@@ -481,7 +482,11 @@ def create_cliente(
 # ============================================================
 
 def get_factura_by_id(db: Session, factura_id: int) -> Optional[Factura]:
-    return db.query(Factura).filter(Factura.id == factura_id).first()
+    from sqlalchemy.orm import joinedload
+    return db.query(Factura).options(
+        joinedload(Factura.cliente),
+        joinedload(Factura.items)
+    ).filter(Factura.id == factura_id).first()
 
 def get_factura_by_numero(db: Session, numero: str) -> Optional[Factura]:
     return db.query(Factura).filter(Factura.numero_completo == numero).first()
@@ -495,7 +500,11 @@ def get_facturas(
     fecha_desde: Optional[datetime] = None,
     fecha_hasta: Optional[datetime] = None
 ) -> List[Factura]:
-    query = db.query(Factura)
+    from sqlalchemy.orm import joinedload
+    query = db.query(Factura).options(
+        joinedload(Factura.cliente),
+        joinedload(Factura.items)
+    )
     
     if cliente_id:
         query = query.filter(Factura.cliente_id == cliente_id)

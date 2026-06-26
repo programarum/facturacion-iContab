@@ -25,12 +25,14 @@ def listar_usuarios(
     return get_usuarios(db, skip=skip, limit=limit)
 
 @router.post("/", response_model=UsuarioResponse)
-def crear_usuario(
+
+async def crear_usuario(
     request: Request,
     usuario: UsuarioCreate,
     db: Session = Depends(get_db),
     current_user = Depends(require_rol(["admin"]))
 ):
+
     try:
         # Convertir string rol a enum
         rol_enum = Rol(usuario.rol.lower()) if usuario.rol else Rol.USUARIO

@@ -6,7 +6,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from app.database import get_db
-from app.models import Factura, Cliente, Producto, ConfiguracionEmpresa, Rol, AccionTipo, TipoDocumento, TipoIdentificacion
+from app.models import Factura, Cliente, Producto, ConfiguracionEmpresa, Rol, AccionTipo, TipoDocumento, TipoIdentificacion, TipoMovimiento
 from app.schemas import (
     ClienteCreate, ClienteUpdate, ClienteResponse,
     FacturaCreate, FacturaResponse,
@@ -93,7 +93,7 @@ def crear_cliente_endpoint(
     current_user = Depends(require_rol(["admin", "moderador"]))
 ):
     try:
-        tipo_id = TipoIdentificacion(cliente.tipo_identificacion)
+        tipo_id = TipoIdentificacion(cliente.tipo_identificacion.value)
         nuevo = create_cliente(
             db=db,
             tipo_identificacion=tipo_id,
@@ -112,7 +112,7 @@ def crear_cliente_endpoint(
 
 # ==================== FACTURAS ====================
 
-@router.get("/facturas", response_model=List[FacturaResponse])
+@router.get("/facturas")
 def listar_facturas(
     skip: int = 0,
     limit: int = 100,
@@ -121,7 +121,42 @@ def listar_facturas(
     current_user = Depends(get_current_user)
 ):
     facturas = get_facturas(db, skip=skip, limit=limit, cliente_id=cliente_id)
-    return facturas
+    return [{
+        "id": f.id,
+        "numero_completo": f.numero_completo,
+        "fecha_emision": f.fecha_emision,
+        "estado_dian": f.estado_dian,
+        "cliente": {
+            "id": f.cliente.id,
+            "tipo_identificacion": f.cliente.tipo_identificacion.value,
+            "numero_identificacion": f.cliente.numero_identificacion,
+            "nombre": f.cliente.nombre,
+            "razon_social": f.cliente.razon_social,
+            "direccion": f.cliente.direccion,
+            "telefono": f.cliente.telefono,
+            "email": f.cliente.email,
+            "responsable_iva": f.cliente.responsable_iva,
+            "regimen": f.cliente.regimen,
+            "creado_en": f.cliente.creado_en,
+        },
+        "items": [{
+            "id": item.id,
+            "cantidad": item.cantidad,
+            "descripcion": item.descripcion,
+            "precio_unitario": item.precio_unitario,
+            "descuento": item.descuento,
+            "subtotal": item.subtotal,
+            "iva": item.iva,
+            "total": item.total
+        } for item in f.items],
+        "subtotal": f.subtotal,
+        "descuento": f.descuento,
+        "base_gravable": f.base_gravable,
+        "iva": f.iva,
+        "iva_porcentaje": f.iva_porcentaje,
+        "total": f.total,
+        "cufe": f.cufe
+    } for f in facturas]
 
 @router.get("/facturas/{factura_id}")
 def obtener_factura(
@@ -138,7 +173,19 @@ def obtener_factura(
         "numero_completo": factura.numero_completo,
         "fecha_emision": factura.fecha_emision,
         "estado_dian": factura.estado_dian,
-        "cliente": factura.cliente,
+        "cliente": {
+            "id": factura.cliente.id,
+            "tipo_identificacion": factura.cliente.tipo_identificacion.value,
+            "numero_identificacion": factura.cliente.numero_identificacion,
+            "nombre": factura.cliente.nombre,
+            "razon_social": factura.cliente.razon_social,
+            "direccion": factura.cliente.direccion,
+            "telefono": factura.cliente.telefono,
+            "email": factura.cliente.email,
+            "responsable_iva": factura.cliente.responsable_iva,
+            "regimen": factura.cliente.regimen,
+            "creado_en": factura.cliente.creado_en,
+        },
         "items": [{
             "id": item.id,
             "cantidad": item.cantidad,
@@ -200,6 +247,7 @@ def crear_factura_endpoint(
         
         items_calculados.append({
             "producto_id": producto.id,
+            "producto": producto,
             "descripcion": producto.nombre,
             **calc
         })
@@ -250,14 +298,14 @@ def crear_factura_endpoint(
         )
         db.add(item)
         
-        # Descontar stock
-        producto = get_producto_by_id(db, item_calc["producto_id"])
-        producto.stock_actual -= item_calc["cantidad"]
+        # Descontar stock (reutilizar producto ya cargado)
+        prod = item_calc["producto"]
+        prod.stock_actual -= item_calc["cantidad"]
         
         # Movimiento de salida
         mov = Movimiento(
-            producto_id=producto.id,
-            tipo="salida",
+            producto_id=prod.id,
+            tipo=TipoMovimiento.SALIDA,
             cantidad=item_calc["cantidad"],
             usuario_id=current_user.id,
             nota=f"Factura {numero_completo}"
@@ -290,10 +338,7 @@ def crear_factura_endpoint(
     # Incrementar consecutivo
     config.numero_actual += 1
     
-    db.commit()
-    db.refresh(factura)
-    
-    # Auditoría
+    # Auditoría (commit=False para que todo sea una sola transacción)
     AuditoriaService.registrar(
         db=db,
         usuario_id=current_user.id,
@@ -309,9 +354,13 @@ def crear_factura_endpoint(
             "iva": float(totales["iva"]),
             "cufe": cufe
         },
-        ip_address=request.client.host,
-        exito=True
+        ip_address=request.client.host if request.client else None,
+        exito=True,
+        commit=False
     )
+    
+    db.commit()
+    db.refresh(factura)
     
     return {
         "id": factura.id,

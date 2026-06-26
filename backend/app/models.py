@@ -99,6 +99,7 @@ class Movimiento(Base):
     nota: Mapped[str] = mapped_column(String)
     
     producto = relationship("Producto", back_populates="movimientos")
+    usuario = relationship("Usuario")
     
 class RefreshToken(Base):
     """🔒 Tokens de refresco rotativos (previene reuse)"""
@@ -151,6 +152,9 @@ class AccionTipo(enum.Enum):
     # 📊 Reportes
     REPORTE_EXPORTAR = "reporte_exportar"
     AUDITORIA_VER = "auditoria_ver"
+
+    # 🧾 Facturación
+    FACTURA_CREAR = "factura_crear"
     
 class Severidad(enum.Enum):
     INFO = "info"
@@ -215,7 +219,10 @@ class Cliente(Base):
     __tablename__ = "clientes"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    tipo_identificacion: Mapped[TipoIdentificacion] = mapped_column(Enum(TipoIdentificacion), default=TipoIdentificacion.CC)
+    tipo_identificacion: Mapped[TipoIdentificacion] = mapped_column(
+        Enum(TipoIdentificacion, values_callable=lambda x: [e.value for e in x]),
+        default=TipoIdentificacion.CC
+    )
     numero_identificacion: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
     nombre: Mapped[str] = mapped_column(String(200), nullable=False)
     razon_social: Mapped[str] = mapped_column(String(200), nullable=True)  # Para NIT
@@ -224,6 +231,7 @@ class Cliente(Base):
     email: Mapped[str] = mapped_column(String(100), nullable=True)
     responsable_iva: Mapped[bool] = mapped_column(Boolean, default=False)  # Si es responsable de IVA
     regimen: Mapped[str] = mapped_column(String(50), default="No responsable de IVA")  # Régimen tributario
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     
     facturas: Mapped[List["Factura"]] = relationship("Factura", back_populates="cliente")
 
@@ -253,8 +261,8 @@ class ConfiguracionEmpresa(Base):
     
     # Resolución DIAN
     numero_resolucion: Mapped[str] = mapped_column(String(50), nullable=True)
-    fecha_resolucion: Mapped[DateTime] = mapped_column(DateTime, nullable=True)
-    fecha_vencimiento_resolucion: Mapped[DateTime] = mapped_column(DateTime, nullable=True)
+    fecha_resolucion: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    fecha_vencimiento_resolucion: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 class Factura(Base):
     __tablename__ = "facturas"
@@ -269,8 +277,8 @@ class Factura(Base):
     tipo_documento: Mapped[Enum] = mapped_column(Enum(TipoDocumento), default=TipoDocumento.FACTURA_VENTA)
     
     # Fechas
-    fecha_emision: Mapped[DateTime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    fecha_vencimiento: Mapped[DateTime] = mapped_column(DateTime, nullable=True)  # Para crédito
+    fecha_emision: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    fecha_vencimiento: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)  # Para crédito
     
     # Relaciones
     cliente_id: Mapped[int] = mapped_column(Integer, ForeignKey("clientes.id"), nullable=False)
@@ -293,7 +301,7 @@ class Factura(Base):
     
     # Tracking
     xml_firmado: Mapped[str] = mapped_column(Text, nullable=True)   # XML firmado para DIAN
-    fecha_envio_dian: Mapped[DateTime] = mapped_column(DateTime, nullable=True)
+    fecha_envio_dian: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     track_id: Mapped[str] = mapped_column(String(100), nullable=True)  # ID de seguimiento DIAN
     
     # Relaciones

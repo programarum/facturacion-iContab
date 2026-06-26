@@ -1,6 +1,7 @@
-import { ReactNode, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { ReactNode, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
+import  logo  from "../assets/logo.png";
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -14,32 +15,56 @@ const MainLayout = ({ children }: MainLayoutProps) => {
 
   const handleLogout = async () => {
     await logout();
-    navigate('/login');
+    navigate("/login");
+  };
+
+  const menuByRole = {
+    admin: [
+      { path: "/dashboard", label: "Dashboard", icon: "📊" },
+      { path: "/productos", label: "Productos", icon: "📦" },
+      { path: "/categorias", label: "Categorías", icon: "📂" },
+      { path: "/movimientos", label: "Movimientos", icon: "🔄" },
+      { path: "/usuarios", label: "Usuarios", icon: "👥" },
+    ],
+    moderador: [
+      { path: "/productos", label: "Productos", icon: "📦" },
+      { path: "/categorias", label: "Categorías", icon: "📂" },
+    ],
+    usuario: [],
   };
 
   const menuItems = [
+    { path: "/facturacion", label: "Facturación", icon: "🧾" },
+    ...(menuByRole[user?.rol as keyof typeof menuByRole] || []),
 
-    { path: '/facturacion', label: 'Facturación', icon: '🧾' },
-    ...(user?.rol === 'admin' ? [
-      { path: '/dashboard', label: 'Dashboard', icon: '📊' },
-      { path: '/productos', label: 'Productos', icon: '📦' },
-      { path: '/categorias', label: 'Categorías', icon: '📂' },
-      { path: '/movimientos', label: 'Movimientos', icon: '🔄' },
-      { path: '/usuarios', label: 'Usuarios', icon: '👥' },
-    ] : []),
+    // { path: '/facturacion', label: 'Facturación', icon: '🧾' },
+    // ...(user?.rol === 'admin' ? [
+    //   { path: '/dashboard', label: 'Dashboard', icon: '📊' },
+    //   { path: '/productos', label: 'Productos', icon: '📦' },
+    //   { path: '/categorias', label: 'Categorías', icon: '📂' },
+    //   { path: '/movimientos', label: 'Movimientos', icon: '🔄' },
+    //   { path: '/usuarios', label: 'Usuarios', icon: '👥' },
+    // ] : []),
   ];
 
   return (
     <div className="min-h-screen bg-gray-100 flex">
       {/* Sidebar */}
-      <aside 
+      <aside
         className={`bg-gray-900 text-white w-64 min-h-screen shrink-0 transition-all duration-300 ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
+        <div className="flex justify-center mb-2">
+          <img src={logo} alt="Logo" className="h-16 w-auto" />
+        </div>
         <div className="p-4">
-          <h1 className="text-2xl font-bold text-center">Facturacion - iContab</h1>
-          <p className="text-gray-400 text-sm text-center">Sistema de Facturación</p>
+          <h1 className="text-2xl font-bold text-center">
+            Facturacion - iContab
+          </h1>
+          <p className="text-gray-400 text-sm text-center">
+            Sistema de Facturación
+          </p>
         </div>
 
         <nav className="mt-6">
@@ -48,7 +73,9 @@ const MainLayout = ({ children }: MainLayoutProps) => {
               key={item.path}
               to={item.path}
               className={`flex items-center gap-3 px-6 py-3 hover:bg-gray-800 transition-colors ${
-                location.pathname === item.path ? 'bg-gray-800 border-l-4 border-blue-500' : ''
+                location.pathname === item.path
+                  ? "bg-gray-800 border-l-4 border-blue-500"
+                  : ""
               }`}
             >
               <span className="text-xl">{item.icon}</span>
@@ -71,13 +98,16 @@ const MainLayout = ({ children }: MainLayoutProps) => {
                 ☰
               </button>
               <h2 className="text-lg font-semibold text-gray-800">
-                {menuItems.find(m => m.path === location.pathname)?.label || 'Sistema'}
+                {menuItems.find((m) => m.path === location.pathname)?.label ||
+                  "Sistema"}
               </h2>
             </div>
 
             <div className="flex items-center gap-4">
               <div className="text-right">
-                <p className="text-sm font-medium text-gray-900">{user?.username}</p>
+                <p className="text-sm font-medium text-gray-900">
+                  {user?.username}
+                </p>
                 <p className="text-xs text-gray-500 capitalize">{user?.rol}</p>
               </div>
               <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold">
@@ -94,9 +124,7 @@ const MainLayout = ({ children }: MainLayoutProps) => {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 p-6">
-          {children}
-        </main>
+        <main className="flex-1 p-6">{children}</main>
       </div>
     </div>
   );

@@ -1,5 +1,18 @@
 import { apiFetch } from './auth';
 
+const parseError = async (res: Response, fallback: string): Promise<never> => {
+  try {
+    const error = await res.json();
+    if (Array.isArray(error.detail)) {
+      throw new Error(error.detail.map((e: any) => e.msg).join(', '));
+    }
+    throw new Error(error.detail || fallback);
+  } catch (err: any) {
+    if (err.message) throw err;
+    throw new Error(fallback);
+  }
+};
+
 // ==================== PRODUCTOS ====================
 
 export const productosAPI = {
@@ -45,10 +58,7 @@ export const productosAPI = {
       method: 'POST',
       body: JSON.stringify(producto),
     });
-    if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.detail || 'Error al crear producto');
-    }
+    if (!res.ok) return parseError(res, 'Error al crear producto');
     return res.json();
   },
 
@@ -57,10 +67,7 @@ export const productosAPI = {
       method: 'PUT',
       body: JSON.stringify(datos),
     });
-    if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.detail || 'Error al actualizar');
-    }
+    if (!res.ok) return parseError(res, 'Error al actualizar');
     return res.json();
   },
 
@@ -68,10 +75,7 @@ export const productosAPI = {
     const res = await apiFetch(`/productos/${id}`, {
       method: 'DELETE',
     });
-    if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.detail || 'Error al eliminar');
-    }
+    if (!res.ok) return parseError(res, 'Error al eliminar');
     return res.json();
   },
 };
@@ -90,10 +94,7 @@ export const categoriasAPI = {
       method: 'POST',
       body: JSON.stringify(categoria),
     });
-    if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.detail || 'Error al crear categoría');
-    }
+    if (!res.ok) return parseError(res, 'Error al crear categoría');
     return res.json();
   },
 
@@ -102,10 +103,7 @@ export const categoriasAPI = {
       method: 'PUT',
       body: JSON.stringify(datos),
     });
-    if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.detail || 'Error al actualizar');
-    }
+    if (!res.ok) return parseError(res, 'Error al actualizar');
     return res.json();
   },
 
@@ -113,10 +111,7 @@ export const categoriasAPI = {
     const res = await apiFetch(`/categorias/${id}`, {
       method: 'DELETE',
     });
-    if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.detail || 'Error al eliminar');
-    }
+    if (!res.ok) return parseError(res, 'Error al eliminar');
     return res.json();
   },
 };
@@ -152,10 +147,7 @@ export const movimientosAPI = {
       method: 'POST',
       body: JSON.stringify(movimiento),
     });
-    if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.detail || 'Error al crear movimiento');
-    }
+    if (!res.ok) return parseError(res, 'Error al crear movimiento');
     return res.json();
   },
 };
@@ -180,10 +172,7 @@ export const usuariosAPI = {
       method: 'POST',
       body: JSON.stringify(usuario),
     });
-    if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.detail || 'Error al crear usuario');
-    }
+    if (!res.ok) return parseError(res, 'Error al crear usuario');
     return res.json();
   },
 
@@ -192,10 +181,7 @@ export const usuariosAPI = {
       method: 'PUT',
       body: JSON.stringify(datos),
     });
-    if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.detail || 'Error al actualizar');
-    }
+    if (!res.ok) return parseError(res, 'Error al actualizar');
     return res.json();
   },
 };
@@ -228,10 +214,7 @@ export const facturacionAPI = {
         method: 'POST',
         body: JSON.stringify(cliente),
       });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.detail || 'Error al crear cliente');
-      }
+      if (!res.ok) return parseError(res, 'Error al crear cliente');
       return res.json();
     },
   },
@@ -263,10 +246,7 @@ export const facturacionAPI = {
         method: 'POST',
         body: JSON.stringify(factura),
       });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.detail || 'Error al crear factura');
-      }
+      if (!res.ok) return parseError(res, 'Error al crear factura');
       return res.json();
     },
   },

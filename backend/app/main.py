@@ -53,7 +53,6 @@ async def startup_event():
 
 def seed_datos_iniciales():
     """Crea datos de prueba si la base está vacía"""
-    print ("🌱 Verificando datos iniciales...")
     db = next(get_db())
     
     try:
@@ -82,7 +81,7 @@ def seed_datos_iniciales():
             db=db,
             username="moderador",
             email="mod@empresa.com",
-            password="Mod123!",
+            password="Mod1234!",
             nombre="Moderador Principal",
             rol=Rol.MODERADOR
         )

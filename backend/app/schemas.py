@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field, computed_field, validator, EmailStr
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import re
+from enum import Enum
 
 from app.models import TipoMovimiento
 
@@ -192,8 +193,15 @@ class MovimientoResponse(BaseModel):
 # ============================================================
 
 
+class TipoIdentificacion(str, Enum):
+    CC = "13"   # Cédula Ciudadanía
+    NIT = "31"  # NIT
+    CE = "22"   # Cédula Extranjería
+    TI = "12"   # Tarjeta Identidad
+    PA = "41"   # Pasaporte
+
 class ClienteBase(BaseModel):
-    tipo_identificacion: str = Field(..., pattern=r'^(CC|NIT|CE|TI|PA)$')
+    tipo_identificacion: TipoIdentificacion
     numero_identificacion: str = Field(..., min_length=5, max_length=20)
     nombre: str = Field(..., min_length=2, max_length=200)
     razon_social: Optional[str] = Field(None, max_length=200)
@@ -218,7 +226,7 @@ class ClienteUpdate(BaseModel):
 class ClienteResponse(ClienteBase):
     id: int
     creado_en: datetime
-    
+
     class Config:
         from_attributes = True
 
