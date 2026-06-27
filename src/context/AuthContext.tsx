@@ -39,15 +39,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
 
     const login = async (username: string, password: string) => {
-        const response = await fetch('/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password })
-        });
+        let response: Response;
+        try {
+            response = await apiFetch('/auth/login', {
+                method: 'POST',
+                body: JSON.stringify({ username, password })
+            });
+        } catch {
+            throw new Error('No se pudo conectar con el servidor');
+        }
         
         if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || 'Error de autenticación');
+            try {
+                const error = await response.json();
+                throw new Error(error.detail || 'Error de autenticación');
+            } catch (err: any) {
+                if (err.message) throw err;
+                throw new Error(`Error del servidor (${response.status})`);
+            }
         }
         
         const data = await response.json();

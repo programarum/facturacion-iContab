@@ -9,11 +9,13 @@
     "beforeDevCommand": "pnpm dev",
     "beforeBuildCommand": "pnpm build"
   },
+
   "app": {
+
     "windows": [
       {
         "title": "Facturacion - iContab",
-        "width": 800,
+        "width": 1200,
         "height": 600,
         "resizable": true,
         "fullscreen": true

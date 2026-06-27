@@ -9,7 +9,7 @@ import app.models
 from app.models import Rol, Log
 
 # 2. IMPORTAR CONEXIÓN DE BASE DE DATOS Y SEEDS
-from app.database import SessionLocal, Base, engine, init_db
+from app.database import SessionLocal, Base, engine, get_db, init_db
 
 # 3. IMPORTAR CRUD Y SCHEMAS (Ya con los modelos bien cargados en memoria)
 from app import schemas, crud
@@ -60,10 +60,10 @@ def seed_datos_iniciales():
         
         from app.crud import get_usuarios
         if get_usuarios(db, limit=1):
-            print("✅ Base de datos ya tiene datos")
+            print("[OK] Base de datos ya tiene datos")
             return
         
-        print("🌱 Creando datos de prueba...")
+        print("[SEED] Creando datos de prueba...")
         
         # 1. Usuario admin
         admin = create_usuario(
@@ -74,7 +74,7 @@ def seed_datos_iniciales():
             nombre="Administrador",
             rol=Rol.ADMIN
         )
-        print(f"   👤 Admin creado: {admin.username}")
+        print(f"   [USER] Admin creado: {admin.username}")
         
         # 2. Usuario moderador
         mod = create_usuario(
@@ -85,7 +85,7 @@ def seed_datos_iniciales():
             nombre="Moderador Principal",
             rol=Rol.MODERADOR
         )
-        print(f"   👤 Moderador creado: {mod.username}")
+        print(f"   [USER] Moderador creado: {mod.username}")
         
         # 3. Usuario normal
         user = create_usuario(
@@ -96,7 +96,7 @@ def seed_datos_iniciales():
             nombre="Usuario Estándar",
             rol=Rol.USUARIO
         )
-        print(f"   👤 Usuario creado: {user.username}")
+        print(f"   [USER] Usuario creado: {user.username}")
         
         # 4. Configuración empresa
         config = crear_configuracion_empresa(
@@ -116,13 +116,13 @@ def seed_datos_iniciales():
             fecha_resolucion=datetime(2026, 1, 15),
             fecha_vencimiento_resolucion=datetime(2027, 1, 15)
         )
-        print(f"   🏢 Empresa configurada: {config.nombre_empresa}")
+        print(f"   [CONFIG] Empresa configurada: {config.nombre_empresa}")
         
         # 5. Categorías
         cat_electronica = create_categoria(db, "Electrónica", "Productos electrónicos y tecnología")
         cat_oficina = create_categoria(db, "Oficina", "Artículos de oficina y papelería")
         cat_muebles = create_categoria(db, "Muebles", "Mobiliario de oficina")
-        print(f"   📂 Categorías creadas")
+        print(f"   [CAT] Categorias creadas")
         
         # 6. Productos de prueba
         productos = [
@@ -144,12 +144,12 @@ def seed_datos_iniciales():
                 stock_minimo=minimo,
                 stock_maximo=maximo
             )
-            print(f"   📦 Producto: {prod.nombre}")
+            print(f"   [PROD] Producto: {prod.nombre}")
         
-        print("✅ Datos de prueba creados exitosamente")
+        print("[OK] Datos de prueba creados exitosamente")
         
     except Exception as e:
-        print(f"⚠️ Error en seed: {e}")
+        print(f"[ERROR] Error en seed: {e}")
     finally:
         db.close()
 
@@ -176,7 +176,6 @@ def root():
 def health_check():
     return {"status": "ok", "timestamp": datetime.utcnow()}
 
-
 # Dependency
 def get_db():
     db = SessionLocal()
@@ -185,32 +184,6 @@ def get_db():
     finally:
         db.close()
 
-@app.post("/login")
-def login(credentials: schemas.LoginRequest, db: Session = Depends(get_db)):
-    usuario = crud.autenticar_usuario(db, credentials.username, credentials.password)
-    if not usuario:
-        raise HTTPException(status_code=401, detail="Credenciales inválidas")
-    return {"token": "jwt_token", "usuario": usuario.username, "rol": usuario.rol}
-
-@app.get("/productos", response_model=list[schemas.ProductoResponse])
-def listar_productos(db: Session = Depends(get_db)):
-    return crud.get_productos(db)
-
-@app.post("/productos")
-def crear_producto(producto: schemas.ProductoCreate, 
-                   db: Session = Depends(get_db)
-                   ):
-    return crud.create_producto(
-        db=db,
-        codigo=producto.codigo,
-        nombre=producto.nombre,
-        categoria_id=producto.categoria_id,
-        precio=producto.precio,
-        stock_actual=producto.stock_actual,
-        stock_minimo=producto.stock_minimo,
-        stock_maximo=producto.stock_maximo,
-        descripcion=producto.descripcion
-        )
 
 @app.post("/movimientos")
 def registrar_movimiento(mov: schemas.MovimientoCreate, db: Session = Depends(get_db)):
@@ -231,4 +204,4 @@ def dashboard_stats(db: Session = Depends(get_db)):
         "sin_stock": crud.count_por_estado(db, "sin_stock"),
         "stock_bajo": crud.count_por_estado(db, "stock_bajo"),
         "movimientos_hoy": crud.movimientos_hoy(db)
-    }
+    }    

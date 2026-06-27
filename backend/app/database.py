@@ -77,13 +77,13 @@ def init_db():
     """Crea todas las tablas si no existen. Llama al iniciar la app."""
     from app import models  # Importa todos los modelos
     Base.metadata.create_all(bind=engine)
-    print(f"✅ Base de datos inicializada en: {DATABASE_URL}")
+    print(f"[OK] Base de datos inicializada en: {DATABASE_URL}")
 
 def reset_db():
-    """⚠️ ELIMINA todas las tablas y las recrea. Úsalo con cuidado."""
+    """ELIMINA todas las tablas y las recrea. Usalo con cuidado."""
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
-    print("⚠️ Base de datos reiniciada")
+    print("[WARN] Base de datos reiniciada")
 
 def get_db_session() -> Session:
     """Para usar en scripts o tareas en background (no en requests HTTP)"""
