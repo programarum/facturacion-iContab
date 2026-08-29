@@ -12,6 +12,15 @@ dist
 dist-ssr
 *.local
 
+# Backend Rust/Tauri
+src-tauri/target
+src-tauri/gen
+
+# Backend Python (eliminado) y entornos
+backend/
+venv/
+D:*
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

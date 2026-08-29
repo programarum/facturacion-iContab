@@ -1,17 +1,4 @@
-import { apiFetch } from './auth';
-
-const parseError = async (res: Response, fallback: string): Promise<never> => {
-  try {
-    const error = await res.json();
-    if (Array.isArray(error.detail)) {
-      throw new Error(error.detail.map((e: any) => e.msg).join(', '));
-    }
-    throw new Error(error.detail || fallback);
-  } catch (err: any) {
-    if (err.message) throw err;
-    throw new Error(fallback);
-  }
-};
+import { tauriInvoke } from './auth';
 
 // ==================== PRODUCTOS ====================
 
@@ -24,24 +11,19 @@ export const productosAPI = {
     sin_stock?: boolean;
     busqueda?: string;
   }) => {
-    const query = new URLSearchParams();
-    if (params?.skip) query.append('skip', params.skip.toString());
-    if (params?.limit) query.append('limit', params.limit.toString());
-    if (params?.categoria_id) query.append('categoria_id', params.categoria_id.toString());
-    if (params?.stock_bajo) query.append('stock_bajo', 'true');
-    if (params?.sin_stock) query.append('sin_stock', 'true');
-    if (params?.busqueda) query.append('busqueda', params.busqueda);
-    
-    const url = `/productos/${query.toString() ? '?' + query.toString() : ''}`;
-    const res = await apiFetch(url);
-    if (!res.ok) throw new Error('Error al cargar productos');
-    return res.json();
+    const params_req = {
+      skip: params?.skip,
+      limit: params?.limit,
+      categoria_id: params?.categoria_id,
+      stock_bajo: params?.stock_bajo,
+      sin_stock: params?.sin_stock,
+      busqueda: params?.busqueda,
+    };
+    return tauriInvoke('listar_productos', { params_req });
   },
 
   buscar: async (q: string) => {
-    const res = await apiFetch(`/productos/buscar?q=${encodeURIComponent(q)}`);
-    if (!res.ok) throw new Error('Error en búsqueda');
-    return res.json();
+    return tauriInvoke('buscar_productos', { q });
   },
 
   crear: async (producto: {
@@ -54,29 +36,15 @@ export const productosAPI = {
     stock_minimo?: number;
     stock_maximo?: number;
   }) => {
-    const res = await apiFetch('/productos/', {
-      method: 'POST',
-      body: JSON.stringify(producto),
-    });
-    if (!res.ok) return parseError(res, 'Error al crear producto');
-    return res.json();
+    return tauriInvoke('crear_producto', { req: { ...producto } });
   },
 
   actualizar: async (id: number, datos: any) => {
-    const res = await apiFetch(`/productos/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(datos),
-    });
-    if (!res.ok) return parseError(res, 'Error al actualizar');
-    return res.json();
+    return tauriInvoke('actualizar_producto', { id, req: { ...datos } });
   },
 
   eliminar: async (id: number) => {
-    const res = await apiFetch(`/productos/${id}`, {
-      method: 'DELETE',
-    });
-    if (!res.ok) return parseError(res, 'Error al eliminar');
-    return res.json();
+    return tauriInvoke('eliminar_producto', { id });
   },
 };
 
@@ -84,35 +52,19 @@ export const productosAPI = {
 
 export const categoriasAPI = {
   listar: async () => {
-    const res = await apiFetch('/categorias/');
-    if (!res.ok) throw new Error('Error al cargar categorías');
-    return res.json();
+    return tauriInvoke('listar_categorias');
   },
 
   crear: async (categoria: { nombre: string; descripcion?: string }) => {
-    const res = await apiFetch('/categorias/', {
-      method: 'POST',
-      body: JSON.stringify(categoria),
-    });
-    if (!res.ok) return parseError(res, 'Error al crear categoría');
-    return res.json();
+    return tauriInvoke('crear_categoria', { req: { ...categoria } });
   },
 
   actualizar: async (id: number, datos: { nombre?: string; descripcion?: string }) => {
-    const res = await apiFetch(`/categorias/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(datos),
-    });
-    if (!res.ok) return parseError(res, 'Error al actualizar');
-    return res.json();
+    return tauriInvoke('actualizar_categoria', { id, req: { ...datos } });
   },
 
   eliminar: async (id: number) => {
-    const res = await apiFetch(`/categorias/${id}`, {
-      method: 'DELETE',
-    });
-    if (!res.ok) return parseError(res, 'Error al eliminar');
-    return res.json();
+    return tauriInvoke('eliminar_categoria', { id });
   },
 };
 
@@ -125,16 +77,13 @@ export const movimientosAPI = {
     tipo?: string;
     producto_id?: number;
   }) => {
-    const query = new URLSearchParams();
-    if (params?.skip) query.append('skip', params.skip.toString());
-    if (params?.limit) query.append('limit', params.limit.toString());
-    if (params?.tipo) query.append('tipo', params.tipo);
-    if (params?.producto_id) query.append('producto_id', params.producto_id.toString());
-    
-    const url = `/movimientos/${query.toString() ? '?' + query.toString() : ''}`;
-    const res = await apiFetch(url);
-    if (!res.ok) throw new Error('Error al cargar movimientos');
-    return res.json();
+    const params_req = {
+      skip: params?.skip,
+      limit: params?.limit,
+      tipo: params?.tipo,
+      producto_id: params?.producto_id,
+    };
+    return tauriInvoke('listar_movimientos', { params_req });
   },
 
   crear: async (movimiento: {
@@ -143,12 +92,7 @@ export const movimientosAPI = {
     cantidad: number;
     nota?: string;
   }) => {
-    const res = await apiFetch('/movimientos/', {
-      method: 'POST',
-      body: JSON.stringify(movimiento),
-    });
-    if (!res.ok) return parseError(res, 'Error al crear movimiento');
-    return res.json();
+    return tauriInvoke('registrar_movimiento', { req: { ...movimiento } });
   },
 };
 
@@ -156,9 +100,7 @@ export const movimientosAPI = {
 
 export const usuariosAPI = {
   listar: async () => {
-    const res = await apiFetch('/usuarios/');
-    if (!res.ok) throw new Error('Error al cargar usuarios');
-    return res.json();
+    return tauriInvoke('listar_usuarios');
   },
 
   crear: async (usuario: {
@@ -168,21 +110,15 @@ export const usuariosAPI = {
     nombre: string;
     rol?: string;
   }) => {
-    const res = await apiFetch('/usuarios/', {
-      method: 'POST',
-      body: JSON.stringify(usuario),
-    });
-    if (!res.ok) return parseError(res, 'Error al crear usuario');
-    return res.json();
+    return tauriInvoke('crear_usuario', { req: { ...usuario } });
   },
 
   actualizar: async (id: number, datos: any) => {
-    const res = await apiFetch(`/usuarios/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(datos),
-    });
-    if (!res.ok) return parseError(res, 'Error al actualizar');
-    return res.json();
+    return tauriInvoke('actualizar_usuario', { id, req: { ...datos } });
+  },
+
+  cambiarPassword: async (usuario_id: number, nueva_password: string) => {
+    return tauriInvoke('cambiar_password', { req: { usuario_id, nueva_password } });
   },
 };
 
@@ -191,12 +127,7 @@ export const usuariosAPI = {
 export const facturacionAPI = {
   clientes: {
     listar: async (busqueda?: string) => {
-      const url = busqueda 
-        ? `/facturacion/clientes/buscar?q=${encodeURIComponent(busqueda)}`
-        : '/facturacion/clientes';
-      const res = await apiFetch(url);
-      if (!res.ok) throw new Error('Error al cargar clientes');
-      return res.json();
+      return tauriInvoke('listar_clientes', { busqueda: busqueda ?? null });
     },
 
     crear: async (cliente: {
@@ -210,26 +141,17 @@ export const facturacionAPI = {
       responsable_iva?: boolean;
       regimen?: string;
     }) => {
-      const res = await apiFetch('/facturacion/clientes', {
-        method: 'POST',
-        body: JSON.stringify(cliente),
-      });
-      if (!res.ok) return parseError(res, 'Error al crear cliente');
-      return res.json();
+      return tauriInvoke('crear_cliente', { req: { ...cliente } });
     },
   },
 
   facturas: {
     listar: async () => {
-      const res = await apiFetch('/facturacion/facturas');
-      if (!res.ok) throw new Error('Error al cargar facturas');
-      return res.json();
+      return tauriInvoke('listar_facturas');
     },
 
     obtener: async (id: number) => {
-      const res = await apiFetch(`/facturacion/facturas/${id}`);
-      if (!res.ok) throw new Error('Error al obtener factura');
-      return res.json();
+      return tauriInvoke('obtener_factura', { id });
     },
 
     crear: async (factura: {
@@ -242,20 +164,13 @@ export const facturacionAPI = {
       }[];
       fecha_vencimiento?: string;
     }) => {
-      const res = await apiFetch('/facturacion/facturas', {
-        method: 'POST',
-        body: JSON.stringify(factura),
-      });
-      if (!res.ok) return parseError(res, 'Error al crear factura');
-      return res.json();
+      return tauriInvoke('crear_factura', { req: { ...factura } });
     },
   },
 
   configuracion: {
     obtener: async () => {
-      const res = await apiFetch('/facturacion/configuracion');
-      if (!res.ok) throw new Error('Error al obtener configuración');
-      return res.json();
+      return tauriInvoke('obtener_configuracion');
     },
   },
 };
@@ -264,8 +179,6 @@ export const facturacionAPI = {
 
 export const dashboardAPI = {
   stats: async () => {
-    const res = await apiFetch('/dashboard/stats');
-    if (!res.ok) throw new Error('Error al cargar estadísticas');
-    return res.json();
+    return tauriInvoke('dashboard_stats');
   },
 };

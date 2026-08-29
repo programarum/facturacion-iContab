@@ -1,98 +1,31 @@
 use tauri::{Manager, State};
 use serde::{Deserialize, Serialize};
-use std::process::{Command, Child};
+use std::process::Command;
 use std::fs;
 use std::path::PathBuf;
-use std::net::TcpStream;
-use std::io::{Write, Read};
-use std::os::windows::process::CommandExt;
 
-// ==================== BACKEND MANAGEMENT ====================
+// Módulos del backend Rust
+mod commands;
+mod db;
+mod fiscal;
+mod security;
+mod state;
 
-struct BackendState {
-    child: std::sync::Mutex<Option<Child>>,
-}
+use state::AppState;
 
-const BACKEND_PORT: u16 = 8000;
-
-fn is_port_open(port: u16) -> bool {
-    TcpStream::connect(format!("127.0.0.1:{}", port)).is_ok()
-}
-
-#[tauri::command]
-fn check_backend() -> bool {
-    is_port_open(BACKEND_PORT)
-}
-
-#[tauri::command]
-fn health_check() -> Result<String, String> {
-    let mut stream = TcpStream::connect(format!("127.0.0.1:{}", BACKEND_PORT))
-        .map_err(|e| format!("No se pudo conectar: {}", e))?;
-
-    stream
-        .write_all(b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
-        .map_err(|e| format!("Error enviando request: {}", e))?;
-
-    let mut response = String::new();
-    stream
-        .read_to_string(&mut response)
-        .map_err(|e| format!("Error leyendo response: {}", e))?;
-
-    if response.contains("200") {
-        Ok("ok".to_string())
-    } else {
-        Err(format!("Backend respondio con error: {}", response.lines().next().unwrap_or("")))
-    }
-}
-
-#[tauri::command]
-fn start_backend(app_handle: tauri::AppHandle, _state: State<BackendState>) -> Result<String, String> {
-    if is_port_open(BACKEND_PORT) {
-        return Ok("Backend ya esta ejecutando".to_string());
-    }
-
-    start_backend_internal(&app_handle)?;
-
-    Ok("Backend iniciado".to_string())
-}
-
-#[tauri::command]
-fn stop_backend(state: State<BackendState>) -> Result<String, String> {
-    let mut child_ref = state.child.lock().map_err(|e| e.to_string())?;
-    if let Some(ref mut child) = *child_ref {
-        child.kill().map_err(|e| format!("Error deteniendo backend: {}", e))?;
-        *child_ref = None;
-        return Ok("Backend detenido".to_string());
-    }
-    Ok("Backend no estaba ejecutando".to_string())
-}
-
-fn find_python() -> Option<String> {
-    // Buscar python del sistema
-    for cmd in &["python", "python3", "py"] {
-        if let Ok(output) = Command::new(cmd).arg("--version").output() {
-            if output.status.success() {
-                return Some(cmd.to_string());
-            }
-        }
-    }
-    None
-}
-
-fn find_venv_python(project_root: &PathBuf) -> Option<String> {
-    let candidates = vec![
-        project_root.join("backend").join("venv").join("Scripts").join("python.exe"),
-        project_root.join("venv").join("Scripts").join("python.exe"),
-    ];
-    for path in candidates {
-        if path.exists() {
-            log::info!("Python venv encontrado: {:?}", path);
-            return Some(path.to_string_lossy().to_string());
-        }
-    }
-    log::warn!("Python venv no encontrado, buscando python del sistema...");
-    find_python()
-}
+// ==================== MÓDULOS DE COMANDOS ====================
+use commands::auth::{login, logout, me, refresh};
+use commands::catalogo::{
+    listar_categorias, crear_categoria, actualizar_categoria, eliminar_categoria,
+    listar_productos, buscar_productos, crear_producto, actualizar_producto, eliminar_producto,
+};
+use commands::movimientos::{listar_movimientos, registrar_movimiento};
+use commands::usuarios::{listar_usuarios, crear_usuario, actualizar_usuario, cambiar_password};
+use commands::dashboard::dashboard_stats;
+use commands::facturacion::{
+    listar_clientes, crear_cliente, listar_facturas, obtener_factura, crear_factura,
+    obtener_configuracion,
+};
 
 // ==================== PRINTER ====================
 
@@ -137,22 +70,46 @@ fn configurar_impresora(config: PrinterConfig, state: State<PrinterState>) -> Re
 
 #[tauri::command]
 fn obtener_impresoras() -> Result<Vec<String>, String> {
-    let output = Command::new("powershell")
-        .args([
-            "-Command",
-            "Get-Printer | Select-Object -ExpandProperty Name"
-        ])
-        .output()
-        .map_err(|e| format!("Error ejecutando PowerShell: {}", e))?;
+    #[cfg(target_os = "windows")]
+    {
+        let output = Command::new("powershell")
+            .args([
+                "-Command",
+                "Get-Printer | Select-Object -ExpandProperty Name"
+            ])
+            .output()
+            .map_err(|e| format!("Error ejecutando PowerShell: {}", e))?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let impresoras: Vec<String> = stdout
-        .lines()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let impresoras: Vec<String> = stdout
+            .lines()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
 
-    Ok(impresoras)
+        Ok(impresoras)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Linux: listar impresoras del sistema de impresion CUPS
+        let output = Command::new("lpstat")
+            .arg("-e")
+            .output()
+            .map_err(|e| format!("Error ejecutando lpstat: {}. Asegurate de tener CUPS instalado.", e))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let impresoras: Vec<String> = stdout
+            .lines()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        if impresoras.is_empty() {
+            Err("No se detectaron impresoras en el sistema (CUPS)".to_string())
+        } else {
+            Ok(impresoras)
+        }
+    }
 }
 
 #[tauri::command]
@@ -167,7 +124,7 @@ fn imprimir_ticket(
 
     match printer.tipo.as_str() {
         "usb" | "lpt" | "red" => {
-            enviar_a_impresora_windows(&contenido, &printer.nombre)?;
+            enviar_a_impresora(&contenido, &printer.nombre)?;
             Ok("Ticket enviado a impresora".to_string())
         }
         "pdf" => {
@@ -297,7 +254,8 @@ fn truncar(s: &str, max_len: usize) -> String {
     }
 }
 
-fn enviar_a_impresora_windows(contenido: &[u8], nombre_impresora: &str) -> Result<(), String> {
+#[cfg(target_os = "windows")]
+fn enviar_a_impresora(contenido: &[u8], nombre_impresora: &str) -> Result<(), String> {
     let temp_path = std::env::temp_dir().join("ticket_temp.txt");
     fs::write(&temp_path, contenido)
         .map_err(|e| format!("Error escribiendo temporal: {}", e))?;
@@ -319,15 +277,86 @@ fn enviar_a_impresora_windows(contenido: &[u8], nombre_impresora: &str) -> Resul
     Ok(())
 }
 
+#[cfg(not(target_os = "windows"))]
+fn enviar_a_impresora(contenido: &[u8], nombre_impresora: &str) -> Result<(), String> {
+    // Linux: enviar al sistema de impresion CUPS con el comando lp.
+    let temp_path = std::env::temp_dir().join("ticket_temp.txt");
+    fs::write(&temp_path, contenido)
+        .map_err(|e| format!("Error escribiendo temporal: {}", e))?;
+
+    let output = Command::new("lp")
+        .args(["-d", nombre_impresora, temp_path.to_str().unwrap()])
+        .output()
+        .map_err(|e| format!("Error ejecutando lp: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Error imprimiendo via CUPS: {}", stderr.trim()));
+    }
+
+    Ok(())
+}
+
+// ==================== SEED INICIAL ====================
+
+fn seed_inicial(app: &tauri::AppHandle, conn: &mut rusqlite::Connection) -> Result<(), String> {
+    if db::hay_usuarios(conn).map_err(|e| e.to_string())? {
+        log::info!("[SEED] La base ya tiene datos, omitiendo seed.");
+        return Ok(());
+    }
+
+    // 1. Usuarios
+    let (admin_hash, admin_salt) = security::hash_password("Admin123!")?;
+    let (mod_hash, mod_salt) = security::hash_password("Mod1234!")?;
+    let (user_hash, user_salt) = security::hash_password("User123!")?;
+
+    db::insertar_usuario(conn, "admin", "admin@empresa.com", "Administrador", &admin_hash, &admin_salt, "admin").map_err(|e| e.to_string())?;
+    db::insertar_usuario(conn, "moderador", "mod@empresa.com", "Moderador Principal", &mod_hash, &mod_salt, "moderador").map_err(|e| e.to_string())?;
+    db::insertar_usuario(conn, "usuario", "user@empresa.com", "Usuario Estándar", &user_hash, &user_salt, "usuario").map_err(|e| e.to_string())?;
+
+    // 2. Configuración empresa
+    db::insertar_config_empresa(
+        conn,
+        "9001234567",
+        "Tu Empresa SAS",
+        "Tu Empresa Soluciones Avanzadas SAS",
+        "Calle 123 # 45-67, Bogotá D.C.",
+        "601-1234567",
+        "facturacion@empresa.com",
+        "12345678-1234-1234-1234-123456789012",
+        "12345",
+        "SET",
+        1,
+        1000000,
+        "18760000001",
+        "2026-01-15",
+        "2027-01-15",
+    )
+    .map_err(|e| e.to_string())?;
+
+    // 3. Categorías
+    let cat_elec = db::insertar_categoria(conn, "Electrónica", "Productos electrónicos y tecnología").map_err(|e| e.to_string())?;
+    let cat_oficina = db::insertar_categoria(conn, "Oficina", "Artículos de oficina y papelería").map_err(|e| e.to_string())?;
+    let cat_muebles = db::insertar_categoria(conn, "Muebles", "Mobiliario de oficina").map_err(|e| e.to_string())?;
+
+    // 4. Productos
+    db::insertar_producto(conn, "MOU001", "Mouse Inalámbrico Logitech", cat_elec, 45000.0, 50, 10, 100, None).map_err(|e| e.to_string())?;
+    db::insertar_producto(conn, "TEC001", "Teclado Mecánico RGB", cat_elec, 120000.0, 30, 5, 50, None).map_err(|e| e.to_string())?;
+    db::insertar_producto(conn, "USB001", "Cable USB Tipo C 2m", cat_elec, 15000.0, 100, 20, 200, None).map_err(|e| e.to_string())?;
+    db::insertar_producto(conn, "PAQ001", "Resma Papel A4 500h", cat_oficina, 25000.0, 200, 50, 500, None).map_err(|e| e.to_string())?;
+    db::insertar_producto(conn, "ESC001", "Escritorio Ejecutivo", cat_muebles, 350000.0, 15, 3, 30, None).map_err(|e| e.to_string())?;
+
+    let _ = app;
+    log::info!("[SEED] Datos iniciales creados correctamente.");
+    Ok(())
+}
+
 // ==================== APP ENTRY ====================
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .manage(BackendState {
-            child: std::sync::Mutex::new(None),
-        })
         .manage(PrinterState {
             config: std::sync::Mutex::new(PrinterConfig {
                 nombre: "Generic / Text Only".to_string(),
@@ -335,17 +364,6 @@ pub fn run() {
                 ancho_caracteres: 32,
             }),
         })
-        .invoke_handler(tauri::generate_handler![
-            // Backend management
-            check_backend,
-            health_check,
-            start_backend,
-            stop_backend,
-            // Printer
-            obtener_impresoras,
-            configurar_impresora,
-            imprimir_ticket
-        ])
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -355,88 +373,57 @@ pub fn run() {
                 )?;
             }
 
-            // Intentar iniciar el backend automaticamente (dev y prod)
-            let handle = app.handle().clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                if !is_port_open(BACKEND_PORT) {
-                    log::info!("Backend no detectado, iniciando...");
-                    match start_backend_internal(&handle) {
-                        Ok(_) => log::info!("Backend iniciado correctamente"),
-                        Err(e) => log::error!("Error iniciando backend: {}", e),
-                    }
-                } else {
-                    log::info!("Backend ya esta ejecutando en puerto {}", BACKEND_PORT);
-                }
-            });
+            // Abrir base de datos persistente y sembrar datos iniciales
+            let conn = db::abrir_conexion_app(app.handle(), "facticontab.db")
+                .map_err(|e| format!("Error abriendo base de datos: {}", e))?;
+            let mut conn_mut = conn;
+            if let Err(e) = seed_inicial(app.handle(), &mut conn_mut) {
+                log::error!("Error en seed inicial: {}", e);
+            }
+
+            let app_state = AppState::new(conn_mut);
+            app.manage(app_state);
 
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Destroyed = event {
-                log::info!("Ventana cerrada, deteniendo backend...");
-                let state = window.state::<BackendState>();
-                let mut child_ref = state.child.lock().unwrap();
-                if let Some(ref mut child) = *child_ref {
-                    let _ = child.kill();
-                    log::info!("Backend detenido");
-                }
-                drop(child_ref);
-            }
-        })
+        .invoke_handler(tauri::generate_handler![
+            // Autenticación
+            login,
+            logout,
+            me,
+            refresh,
+            // Catálogo
+            listar_categorias,
+            crear_categoria,
+            actualizar_categoria,
+            eliminar_categoria,
+            listar_productos,
+            buscar_productos,
+            crear_producto,
+            actualizar_producto,
+            eliminar_producto,
+            // Movimientos
+            listar_movimientos,
+            registrar_movimiento,
+            // Usuarios
+            listar_usuarios,
+            crear_usuario,
+            actualizar_usuario,
+            cambiar_password,
+            // Dashboard
+            dashboard_stats,
+            // Facturación
+            listar_clientes,
+            crear_cliente,
+            listar_facturas,
+            obtener_factura,
+            crear_factura,
+            obtener_configuracion,
+            // Impresión
+            obtener_impresoras,
+            configurar_impresora,
+            imprimir_ticket
+        ])
         .run(tauri::generate_context!())
         .expect("Error al iniciar Tauri");
-}
-
-fn start_backend_internal(_app_handle: &tauri::AppHandle) -> Result<(), String> {
-    // current_dir() es src-tauri, necesitamos subir a la raiz del proyecto
-    let current = std::env::current_dir()
-        .map_err(|e| format!("Error obteniendo directorio actual: {}", e))?;
-    let project_root = current.parent()
-        .ok_or("No se pudo obtener la raiz del proyecto")?
-        .to_path_buf();
-
-    // Buscar en multiple ubicaciones
-    let backend_exe = project_root.join("backend.exe");
-    let start_script = project_root.join("start_backend.py");
-    let backend_dir = project_root.join("backend");
-    let backend_main = backend_dir.join("app").join("main.py");
-
-    if backend_exe.exists() {
-        log::info!("Iniciando backend.exe: {:?}", backend_exe);
-        Command::new(&backend_exe)
-            .creation_flags(0x08000000)
-            .spawn()
-            .map_err(|e| format!("Error iniciando backend.exe: {}", e))?;
-    } else if start_script.exists() {
-        log::info!("Iniciando start_backend.py: {:?}", start_script);
-        let python = find_venv_python(&project_root).ok_or("Python no encontrado")?;
-        Command::new(&python)
-            .arg(&start_script)
-            .creation_flags(0x08000000)
-            .spawn()
-            .map_err(|e| format!("Error iniciando backend: {}", e))?;
-    } else if backend_main.exists() {
-        let python = find_venv_python(&project_root).ok_or("Python no encontrado")?;
-        log::info!("Iniciando uvicorn con {} desde {:?}", python, backend_dir);
-        Command::new(&python)
-            .current_dir(&backend_dir)
-            .args(["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", &BACKEND_PORT.to_string(), "--log-level", "warning"])
-            .creation_flags(0x08000000)
-            .spawn()
-            .map_err(|e| format!("Error iniciando uvicorn: {}", e))?;
-    } else {
-        return Err(format!("No se encontro el backend en: {:?}", project_root));
-    }
-
-    // Esperar a que el backend este listo
-    for _ in 0..30 {
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        if is_port_open(BACKEND_PORT) {
-            log::info!("Backend listo en puerto {}", BACKEND_PORT);
-            return Ok(());
-        }
-    }
-
-    Err("Backend no inicio en 30 segundos".to_string())
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { productosAPI, facturacionAPI } from '../services/api';
+import { generarFacturaPDF } from '../services/pdf';
 
 interface ProductoBusqueda {
   id: number;
@@ -357,6 +358,12 @@ const FacturacionPage = () => {
               <p className="text-sm">Numero: <span className="font-medium">{facturaCreada.numero_completo}</span></p>
               <p className="text-sm">Total: <span className="font-medium">{formatPrecio(facturaCreada.total)}</span></p>
               <p className="text-sm">CUFE: <span className="text-xs break-all">{facturaCreada.cufe}</span></p>
+              <button
+                onClick={() => generarFacturaPDF(facturaCreada)}
+                className="mt-3 w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 text-sm font-medium"
+              >
+                Descargar PDF
+              </button>
               <button onClick={() => setFacturaCreada(null)} className="mt-2 text-sm text-green-700 hover:underline">Cerrar</button>
             </div>
           )}
