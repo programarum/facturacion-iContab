@@ -3,7 +3,7 @@
 use crate::state::AppState;
 use crate::security;
 use crate::db::{ahora_iso8601};
-use tauri::State;
+use tauri::{AppHandle, State};
 use rusqlite::{params, OptionalExtension};
 use serde::{Serialize, Deserialize};
 use chrono::{Utc, NaiveDateTime};
@@ -208,7 +208,11 @@ pub fn me(state: State<AppState>) -> Result<MeData, String> {
 // ============================================================
 
 #[tauri::command]
-pub fn logout(state: State<AppState>, refresh_token: Option<String>) -> Result<(), String> {
+pub fn logout(
+    state: State<AppState>,
+    app_handle: AppHandle,
+    refresh_token: Option<String>,
+) -> Result<(), String> {
     if let Some(token) = refresh_token {
         let token_hash = security::hash_sha256(&token);
         let db = state.db.lock().unwrap();
@@ -220,6 +224,8 @@ pub fn logout(state: State<AppState>, refresh_token: Option<String>) -> Result<(
     }
     // Limpiar la sesión
     *state.sesion.lock().unwrap() = None;
+    // Salir de la aplicación completa después de invalidar la sesión.
+    app_handle.exit(0);
     Ok(())
 }
 
