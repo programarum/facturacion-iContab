@@ -23,7 +23,7 @@ use commands::movimientos::{listar_movimientos, registrar_movimiento};
 use commands::usuarios::{listar_usuarios, crear_usuario, actualizar_usuario, cambiar_password};
 use commands::dashboard::dashboard_stats;
 use commands::facturacion::{
-    listar_clientes, crear_cliente, listar_facturas, obtener_factura, crear_factura,
+    listar_clientes, crear_cliente, listar_facturas, listar_facturas_historial, obtener_factura, crear_factura,
     obtener_configuracion,
 };
 
@@ -416,6 +416,7 @@ pub fn run() {
             listar_clientes,
             crear_cliente,
             listar_facturas,
+            listar_facturas_historial,
             obtener_factura,
             crear_factura,
             obtener_configuracion,

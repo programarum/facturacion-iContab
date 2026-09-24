@@ -150,6 +150,10 @@ export const facturacionAPI = {
       return tauriInvoke('listar_facturas');
     },
 
+    historial: async (fechaDesde: string, fechaHasta: string) => {
+      return tauriInvoke('listar_facturas_historial', { fechaDesde, fechaHasta });
+    },
+
     obtener: async (id: number) => {
       return tauriInvoke('obtener_factura', { id });
     },

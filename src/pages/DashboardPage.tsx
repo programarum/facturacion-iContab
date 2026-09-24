@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { dashboardAPI } from '../services/api';
 
@@ -7,6 +8,8 @@ interface DashboardStats {
   sin_stock: number;
   stock_bajo: number;
   movimientos_hoy: number;
+  facturas_ultimo_mes: number;
+  ventas_ultimo_mes: number;
 }
 
 const DashboardPage = () => {
@@ -101,6 +104,30 @@ const DashboardPage = () => {
         </div>
       ) : (
         <p className="text-gray-500">No hay estadisticas disponibles</p>
+      )}
+
+      {!loading && stats && (
+        <Link
+          to="/historial-facturas"
+          className="mt-6 flex flex-col gap-4 rounded-lg border border-blue-100 bg-white p-6 shadow transition hover:border-blue-300 hover:shadow-md sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="flex items-center gap-4">
+            <div className="rounded-full bg-blue-100 p-3 text-2xl">🧾</div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Facturas pagadas en los últimos 30 días</h2>
+              <p className="text-sm text-gray-500">Ver el historial y buscar por fecha</p>
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-6 sm:justify-end">
+            <div className="text-right">
+              <p className="text-sm text-gray-500">{stats.facturas_ultimo_mes} facturas</p>
+              <p className="font-semibold text-gray-900">
+                {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(stats.ventas_ultimo_mes)}
+              </p>
+            </div>
+            <span className="text-xl text-blue-600" aria-hidden="true">→</span>
+          </div>
+        </Link>
       )}
     </div>
   );

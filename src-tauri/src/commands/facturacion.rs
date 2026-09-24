@@ -83,6 +83,17 @@ pub struct FacturaResponse {
     pub cufe: Option<String>,
 }
 
+#[derive(Serialize)]
+pub struct FacturaHistorialResponse {
+    pub id: i64,
+    pub numero_completo: String,
+    pub fecha_emision: String,
+    pub cliente_nombre: String,
+    pub cliente_identificacion: String,
+    pub total: f64,
+    pub estado_dian: String,
+}
+
 // ============================================================
 // CLIENTES
 // ============================================================
@@ -396,6 +407,51 @@ pub fn listar_facturas(state: State<AppState>) -> Result<Vec<FacturaResponse>, S
         }
     }
     Ok(resultado)
+}
+
+#[tauri::command]
+pub fn listar_facturas_historial(
+    state: State<AppState>,
+    fecha_desde: String,
+    fecha_hasta: String,
+) -> Result<Vec<FacturaHistorialResponse>, String> {
+    state.requerir_sesion()?;
+
+    let desde = chrono::NaiveDate::parse_from_str(&fecha_desde, "%Y-%m-%d")
+        .map_err(|_| "La fecha inicial debe tener formato AAAA-MM-DD".to_string())?;
+    let hasta = chrono::NaiveDate::parse_from_str(&fecha_hasta, "%Y-%m-%d")
+        .map_err(|_| "La fecha final debe tener formato AAAA-MM-DD".to_string())?;
+    if desde > hasta {
+        return Err("La fecha inicial no puede ser posterior a la fecha final".to_string());
+    }
+
+    let db = state.db.lock().unwrap();
+    let mut stmt = db
+        .prepare(
+            "SELECT f.id, f.numero_completo, f.fecha_emision, c.nombre,
+                    c.numero_identificacion, f.total, f.estado_dian
+             FROM facturas f
+             JOIN clientes c ON c.id = f.cliente_id
+             WHERE date(f.fecha_emision) BETWEEN date(?1) AND date(?2)
+             ORDER BY f.fecha_emision DESC, f.id DESC",
+        )
+        .map_err(|e| format!("Error preparando historial de facturas: {}", e))?;
+    let rows = stmt
+        .query_map(params![fecha_desde, fecha_hasta], |row| {
+            Ok(FacturaHistorialResponse {
+                id: row.get(0)?,
+                numero_completo: row.get(1)?,
+                fecha_emision: row.get(2)?,
+                cliente_nombre: row.get(3)?,
+                cliente_identificacion: row.get(4)?,
+                total: row.get(5)?,
+                estado_dian: row.get(6)?,
+            })
+        })
+        .map_err(|e| format!("Error consultando historial de facturas: {}", e))?;
+
+    rows.map(|row| row.map_err(|e| format!("Error leyendo factura: {}", e)))
+        .collect()
 }
 
 #[tauri::command]

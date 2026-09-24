@@ -36,6 +36,7 @@ const MainLayout = ({ children }: MainLayoutProps) => {
 
   const menuItems = [
     { path: "/facturacion", label: "Facturación", icon: "🧾" },
+    { path: "/historial-facturas", label: "Historial de facturas", icon: "📄" },
     ...(menuByRole[user?.rol as keyof typeof menuByRole] || []),
 
     // { path: '/facturacion', label: 'Facturación', icon: '🧾' },

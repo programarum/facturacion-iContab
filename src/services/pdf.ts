@@ -53,7 +53,11 @@ export interface EmpresaEmisora {
   fecha_vencimiento_resolucion?: string;
 }
 
-export const generarFacturaPDF = (factura: FacturaPDF, empresa?: EmpresaEmisora): void => {
+export const generarFacturaPDF = (
+  factura: FacturaPDF,
+  empresa?: EmpresaEmisora,
+  opciones: { imprimir?: boolean; ventanaImpresion?: Window | null } = {},
+): void => {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 14;
@@ -163,6 +167,17 @@ export const generarFacturaPDF = (factura: FacturaPDF, empresa?: EmpresaEmisora)
     doc.text('CUFE (Estructura de Factura Electronica de Venta):', margin, totalY + 14);
     const cufeLines = doc.splitTextToSize(factura.cufe, pageWidth - margin * 2);
     doc.text(cufeLines, margin, totalY + 19);
+  }
+
+  if (opciones.imprimir) {
+    const ventana = opciones.ventanaImpresion || window.open('', '_blank');
+    if (!ventana) {
+      throw new Error('No se pudo abrir la ventana de impresión. Permite las ventanas emergentes e inténtalo de nuevo.');
+    }
+    doc.autoPrint();
+    const pdfUrl = doc.output('bloburl');
+    ventana.location.href = pdfUrl.toString();
+    return;
   }
 
   doc.save(`factura_${factura.numero_completo.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);

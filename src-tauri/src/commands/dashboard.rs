@@ -15,6 +15,8 @@ pub struct DashboardStats {
     pub movimientos_hoy: i64,
     pub facturas_hoy: i64,
     pub ventas_hoy: f64,
+    pub facturas_ultimo_mes: i64,
+    pub ventas_ultimo_mes: f64,
 }
 
 fn scalar_i64(conn: &rusqlite::Connection, sql: &str) -> Result<i64, String> {
@@ -27,6 +29,10 @@ pub fn dashboard_stats(state: State<AppState>) -> Result<DashboardStats, String>
     state.requerir_sesion()?;
 
     let hoy_inicio = inicio_del_dia_iso8601();
+    let fecha_desde_mes = (chrono::Utc::now().date_naive() - chrono::Duration::days(29))
+        .format("%Y-%m-%d")
+        .to_string();
+    let fecha_hasta_mes = chrono::Utc::now().format("%Y-%m-%d").to_string();
 
     let db = state.db.lock().unwrap();
 
@@ -57,6 +63,21 @@ pub fn dashboard_stats(state: State<AppState>) -> Result<DashboardStats, String>
         )
         .map_err(|e| format!("Error consultando ventas: {}", e))?;
 
+    let facturas_ultimo_mes = db
+        .query_row(
+            "SELECT COUNT(*) FROM facturas WHERE date(fecha_emision) BETWEEN date(?1) AND date(?2)",
+            [&fecha_desde_mes, &fecha_hasta_mes],
+            |r| r.get::<_, i64>(0),
+        )
+        .map_err(|e| format!("Error consultando facturas del último mes: {}", e))?;
+    let ventas_ultimo_mes = db
+        .query_row(
+            "SELECT COALESCE(SUM(total), 0.0) FROM facturas WHERE date(fecha_emision) BETWEEN date(?1) AND date(?2)",
+            [&fecha_desde_mes, &fecha_hasta_mes],
+            |r| r.get::<_, f64>(0),
+        )
+        .map_err(|e| format!("Error consultando ventas del último mes: {}", e))?;
+
     Ok(DashboardStats {
         total_productos,
         sin_stock,
@@ -66,6 +87,8 @@ pub fn dashboard_stats(state: State<AppState>) -> Result<DashboardStats, String>
         movimientos_hoy,
         facturas_hoy,
         ventas_hoy,
+        facturas_ultimo_mes,
+        ventas_ultimo_mes,
     })
 }
 

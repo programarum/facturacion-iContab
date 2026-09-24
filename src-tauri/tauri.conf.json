@@ -11,7 +11,6 @@
   },
 
   "app": {
-
     "windows": [
       {
         "title": "Facturacion - iContab",
@@ -21,6 +20,7 @@
         "fullscreen": true
       }
     ],
+    "withGlobalTauri": true,
     "security": {
       "csp": null
     }

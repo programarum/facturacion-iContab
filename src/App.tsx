@@ -9,6 +9,7 @@ import CategoriasPage from './pages/CategoriasPage';
 import MovimientosPage from './pages/MovimientosPage';
 import FacturacionPage from './pages/FacturacionPage';
 import UsuariosPage from './pages/UsuariosPage';
+import HistorialFacturasPage from './pages/HistorialFacturasPage';
 
 const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, loading } = useAuth();
@@ -37,6 +38,7 @@ function App() {
         <Route path="/categorias" element={<PrivateRoute><MainLayout><CategoriasPage /></MainLayout></PrivateRoute>} />
         <Route path="/movimientos" element={<PrivateRoute><MainLayout><MovimientosPage /></MainLayout></PrivateRoute>} />
         <Route path="/facturacion" element={<PrivateRoute><MainLayout><FacturacionPage /></MainLayout></PrivateRoute>} />
+        <Route path="/historial-facturas" element={<PrivateRoute><MainLayout><HistorialFacturasPage /></MainLayout></PrivateRoute>} />
         <Route path="/usuarios" element={<PrivateRoute><MainLayout><UsuariosPage /></MainLayout></PrivateRoute>} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
       </Routes>
