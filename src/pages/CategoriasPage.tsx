@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
-import { categoriasAPI } from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import { categoriasAPI, facturacionAPI } from '../services/api';
+import { categoriasSugeridasDeRubro, rubroConfig } from '../config/rubros';
 
 interface Categoria {
   id: number;
@@ -9,15 +11,23 @@ interface Categoria {
 }
 
 const CategoriasPage = () => {
+  const { user } = useAuth();
+  const puedeGestionar = ['admin', 'moderador'].includes(user?.rol ?? '');
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [mensaje, setMensaje] = useState('');
+  const [tipoNegocio, setTipoNegocio] = useState<string>('general');
+  const [creandoSugeridas, setCreandoSugeridas] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editando, setEditando] = useState<Categoria | null>(null);
   const [form, setForm] = useState({ nombre: '', descripcion: '' });
 
   useEffect(() => {
     cargarCategorias();
+    facturacionAPI.configuracion.obtener()
+      .then((config: any) => setTipoNegocio(config?.tipo_negocio || 'general'))
+      .catch(() => setTipoNegocio('general'));
   }, []);
 
   const cargarCategorias = async () => {
@@ -65,22 +75,74 @@ const CategoriasPage = () => {
     setShowModal(true);
   };
 
+  const crearCategoriasSugeridas = async () => {
+    const sugeridas = categoriasSugeridasDeRubro(tipoNegocio);
+    const existentes = new Set(categorias.map((cat) => cat.nombre.trim().toLocaleLowerCase()));
+    const faltantes = sugeridas.filter((sugerida) => !existentes.has(sugerida.nombre.trim().toLocaleLowerCase()));
+
+    setError('');
+    setMensaje('');
+    if (faltantes.length === 0) {
+      setMensaje(`Todas las categorías sugeridas para "${rubroConfig(tipoNegocio).etiqueta}" ya existen.`);
+      return;
+    }
+
+    setCreandoSugeridas(true);
+    try {
+      let creadas = 0;
+      for (const sugerida of faltantes) {
+        await categoriasAPI.crear({ nombre: sugerida.nombre, descripcion: sugerida.descripcion });
+        creadas += 1;
+      }
+      setMensaje(`Se crearon ${creadas} categorías sugeridas para "${rubroConfig(tipoNegocio).etiqueta}".`);
+      await cargarCategorias();
+    } catch (err: any) {
+      setError(err.message);
+      await cargarCategorias();
+    } finally {
+      setCreandoSugeridas(false);
+    }
+  };
+
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Categorias</h1>
-        <button
-          onClick={() => { setForm({ nombre: '', descripcion: '' }); setEditando(null); setShowModal(true); }}
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-        >
-          + Nueva Categoria
-        </button>
+    <div className="h-full min-h-0 overflow-y-auto overscroll-contain">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Categorias</h1>
+          <p className="mt-1 text-sm text-gray-600">
+            Rubro actual: <span className="font-medium">{rubroConfig(tipoNegocio).etiqueta}</span>
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {puedeGestionar && (
+            <button
+              type="button"
+              onClick={() => void crearCategoriasSugeridas()}
+              disabled={creandoSugeridas}
+              className="rounded border border-blue-600 px-4 py-2 font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+            >
+              {creandoSugeridas ? 'Creando…' : 'Sugerir categorías del rubro'}
+            </button>
+          )}
+          <button
+            onClick={() => { setForm({ nombre: '', descripcion: '' }); setEditando(null); setShowModal(true); }}
+            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+          >
+            + Nueva Categoria
+          </button>
+        </div>
       </div>
 
       {error && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
           {error}
           <button onClick={() => setError('')} className="float-right font-bold">x</button>
+        </div>
+      )}
+      {mensaje && (
+        <div role="status" className="bg-green-100 border border-green-300 text-green-800 px-4 py-3 rounded mb-4">
+          {mensaje}
+          <button onClick={() => setMensaje('')} className="float-right font-bold">x</button>
         </div>
       )}
 
@@ -108,8 +170,8 @@ const CategoriasPage = () => {
       </div>
 
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-3 sm:p-5">
+          <div className="mx-auto my-2 w-full max-w-md rounded-lg bg-white p-4 shadow-lg sm:my-4 sm:p-6">
             <h2 className="text-xl font-bold mb-4">{editando ? 'Editar Categoria' : 'Nueva Categoria'}</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>

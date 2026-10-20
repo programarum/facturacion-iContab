@@ -41,6 +41,22 @@ pub fn hash_password(password: &str) -> Result<(String, String), String> {
     Ok((hash, salt_str))
 }
 
+pub fn validar_password(password: &str) -> Result<(), String> {
+    let tiene_mayuscula = password.chars().any(char::is_uppercase);
+    let tiene_minuscula = password.chars().any(char::is_lowercase);
+    let tiene_numero = password.chars().any(char::is_numeric);
+    let tiene_especial = password.chars().any(|caracter| !caracter.is_alphanumeric());
+    if password.chars().count() < 8
+        || !tiene_mayuscula
+        || !tiene_minuscula
+        || !tiene_numero
+        || !tiene_especial
+    {
+        return Err("La contraseña debe tener al menos 8 caracteres, mayúscula, minúscula, número y carácter especial".to_string());
+    }
+    Ok(())
+}
+
 /// Verifica una contraseña contra un hash argon2.
 pub fn verify_password(password: &str, hash: &str) -> bool {
     let parsed = match PasswordHash::new(hash) {
@@ -192,5 +208,16 @@ impl RateLimiter {
         if e.intentos >= MAX_LOGIN_ATTEMPTS {
             e.bloqueado_hasta = Some(ahora + LOCKOUT_DURATION_MIN * 60);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validar_password;
+
+    #[test]
+    fn politica_de_password_rechaza_claves_debiles_y_acepta_claves_completas() {
+        assert!(validar_password("simplepass").is_err());
+        assert!(validar_password("StrongPass1!").is_ok());
     }
 }

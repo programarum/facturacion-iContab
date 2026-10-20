@@ -35,10 +35,15 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      # El backend es Rust embebido (comandos Tauri a SQLite), no requiere
-      # Python ni servidor HTTP. Se compila junto con la app.
+      # La URL del servicio es opcional; sin ella se activan archivos firmados offline.
       - name: Build Tauri app (Windows)
-        run: pnpm tauri:build
+        env:
+          ICONTAB_LICENSE_SERVER_URL: ${{ secrets.ICONTAB_LICENSE_SERVER_URL }}
+          ICONTAB_LICENSE_PUBLIC_KEY: ${{ secrets.ICONTAB_LICENSE_PUBLIC_KEY }}
+        run: |
+          if (-not $env:ICONTAB_LICENSE_PUBLIC_KEY) { throw "Missing ICONTAB_LICENSE_PUBLIC_KEY secret" }
+          if (-not $env:ICONTAB_LICENSE_SERVER_URL) { Remove-Item Env:ICONTAB_LICENSE_SERVER_URL -ErrorAction SilentlyContinue }
+          pnpm tauri:build
 
       - name: Upload installers
         uses: actions/upload-artifact@v4

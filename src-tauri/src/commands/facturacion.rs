@@ -3,6 +3,7 @@
 use crate::state::AppState;
 use crate::db::{ahora_iso8601};
 use crate::fiscal::{self, Decimal};
+use crate::units;
 use tauri::State;
 use rusqlite::{params, OptionalExtension, Connection};
 use serde::{Serialize, Deserialize};
@@ -37,12 +38,15 @@ pub struct ConfiguracionResponse {
     pub prefijo_factura: String,
     pub numero_actual: i64,
     pub numero_resolucion: Option<String>,
+    pub tipo_negocio: String,
+    pub aplica_iva: bool,
 }
 
 #[derive(Serialize)]
 pub struct FacturaItemResponse {
     pub id: i64,
-    pub cantidad: i64,
+    pub cantidad: f64,
+    pub unidad_medida: String,
     pub descripcion: String,
     pub precio_unitario: f64,
     pub descuento: f64,
@@ -268,7 +272,7 @@ pub fn obtener_configuracion(state: State<AppState>) -> Result<ConfiguracionResp
     let db = state.db.lock().unwrap();
     db.query_row(
         "SELECT nit, nombre_empresa, razon_social, direccion, telefono, email,
-                prefijo_factura, numero_actual, numero_resolucion
+                prefijo_factura, numero_actual, numero_resolucion, tipo_negocio, aplica_iva
          FROM configuracion_empresa LIMIT 1",
         [],
         |r| {
@@ -282,6 +286,8 @@ pub fn obtener_configuracion(state: State<AppState>) -> Result<ConfiguracionResp
                 prefijo_factura: r.get(6)?,
                 numero_actual: r.get(7)?,
                 numero_resolucion: r.get(8)?,
+                tipo_negocio: r.get(9)?,
+                aplica_iva: r.get::<_, i64>(10)? != 0,
             })
         },
     )
@@ -346,7 +352,8 @@ fn leer_factura(conn: &Connection, id: i64) -> Option<FacturaResponse> {
 
     let mut items = Vec::new();
     if let Ok(mut stmt) = conn.prepare(
-        "SELECT id, cantidad, descripcion, precio_unitario, descuento, subtotal, iva, total
+        "SELECT id, cantidad, descripcion, precio_unitario, descuento, subtotal, iva, total,
+                unidad_medida
          FROM factura_items WHERE factura_id = ?1",
     ) {
         let rows = stmt
@@ -360,6 +367,7 @@ fn leer_factura(conn: &Connection, id: i64) -> Option<FacturaResponse> {
                     subtotal: r.get(5)?,
                     iva: r.get(6)?,
                     total: r.get(7)?,
+                    unidad_medida: r.get(8)?,
                 })
             })
             .ok();
@@ -465,7 +473,7 @@ pub fn obtener_factura(state: State<AppState>, id: i64) -> Result<FacturaRespons
 #[derive(Deserialize)]
 pub struct FacturaItemCreate {
     pub producto_id: i64,
-    pub cantidad: i64,
+    pub cantidad: f64,
     pub precio_unitario: f64,
     pub descuento: Option<f64>,
 }
@@ -475,6 +483,19 @@ pub struct FacturaCreate {
     pub cliente_id: i64,
     pub items: Vec<FacturaItemCreate>,
     pub fecha_vencimiento: Option<String>,
+}
+
+struct ItemCalculado {
+    producto_id: i64,
+    nombre: String,
+    unidad_medida: String,
+    cantidad: f64,
+    precio_unitario: f64,
+    cantidad_decimal: Decimal,
+    subtotal: Decimal,
+    iva: Decimal,
+    total: Decimal,
+    descuento: Decimal,
 }
 
 #[tauri::command]
@@ -494,7 +515,7 @@ pub fn crear_factura(state: State<AppState>, req: FacturaCreate) -> Result<Factu
         .query_row(
             "SELECT nit, nombre_empresa, razon_social, direccion, telefono, email,
                     software_id, pin, prefijo_factura, numero_desde, numero_hasta,
-                    numero_actual, numero_resolucion
+                    numero_actual, numero_resolucion, aplica_iva
              FROM configuracion_empresa LIMIT 1",
             [],
             |r| {
@@ -505,13 +526,14 @@ pub fn crear_factura(state: State<AppState>, req: FacturaCreate) -> Result<Factu
                     r.get::<_, String>(6)?, // software_id
                     r.get::<_, i64>(10)?,   // numero_hasta
                     r.get::<_, i64>(11)?,   // numero_actual
+                    r.get::<_, i64>(13)? != 0, // aplica_iva
                 ))
             },
         )
         .optional()
         .map_err(|e| format!("Error consultando configuración: {}", e))?
         .ok_or_else(|| "Empresa no configurada".to_string())?;
-    let (nit, prefijo, pin, _software_id, numero_hasta, numero_actual) = config;
+    let (nit, prefijo, pin, _software_id, numero_hasta, numero_actual, aplica_iva) = config;
 
     if numero_actual > numero_hasta {
         return Err("Rango de numeración agotado".to_string());
@@ -530,19 +552,30 @@ pub fn crear_factura(state: State<AppState>, req: FacturaCreate) -> Result<Factu
         .ok_or_else(|| "Cliente no encontrado".to_string())?;
 
     // 3. Calcular items y validar stock
-    let mut items_calculados: Vec<(i64, String, i64, Decimal, Decimal, Decimal, Decimal)> = Vec::new();
+    let mut items_calculados: Vec<ItemCalculado> = Vec::new();
+    let mut cantidades_por_producto: std::collections::HashMap<i64, f64> =
+        std::collections::HashMap::new();
     let fecha_emision = ahora_iso8601();
 
     for item in &req.items {
+        if !item.precio_unitario.is_finite() || item.precio_unitario < 0.0 {
+            return Err("El precio unitario debe ser un valor válido mayor o igual a cero".to_string());
+        }
+        let descuento = item.descuento.unwrap_or(0.0);
+        if !descuento.is_finite() || descuento < 0.0 {
+            return Err("El descuento debe ser un valor válido mayor o igual a cero".to_string());
+        }
+
         let prod = db
             .query_row(
-                "SELECT id, nombre, stock_actual FROM productos WHERE id = ?1",
+                "SELECT id, nombre, stock_actual, unidad_medida FROM productos WHERE id = ?1",
                 params![item.producto_id],
                 |r| {
                     Ok((
                         r.get::<_, i64>(0)?,
                         r.get::<_, String>(1)?,
-                        r.get::<_, i64>(2)?,
+                        r.get::<_, f64>(2)?,
+                        r.get::<_, String>(3)?,
                     ))
                 },
             )
@@ -550,41 +583,56 @@ pub fn crear_factura(state: State<AppState>, req: FacturaCreate) -> Result<Factu
             .map_err(|e| format!("Error consultando producto: {}", e))?
             .ok_or_else(|| format!("Producto {} no encontrado", item.producto_id))?;
 
-        let (pid, pnombre, pstock) = prod;
-        if pstock < item.cantidad {
+        let (pid, pnombre, pstock, unidad_medida) = prod;
+        units::validar_cantidad(item.cantidad, &unidad_medida, false)?;
+        let total_solicitado = cantidades_por_producto.entry(pid).or_default();
+        *total_solicitado += item.cantidad;
+        if *total_solicitado > pstock + 0.000001 {
             return Err(format!(
-                "Stock insuficiente para '{pnombre}'. Disponible: {pstock}"
+                "Stock insuficiente para '{pnombre}'. Disponible: {pstock} {unidad_medida}"
             ));
         }
 
         let precio_dec = fiscal::decimal_from_f64(item.precio_unitario);
-        let desc_dec = fiscal::decimal_from_f64(item.descuento.unwrap_or(0.0));
-        let (subtotal, iva, total) = fiscal::calcular_item(item.cantidad, precio_dec, desc_dec);
+        let cantidad_decimal = fiscal::decimal_from_f64(item.cantidad);
+        let desc_dec = fiscal::decimal_from_f64(descuento);
+        let (subtotal, iva, total) = fiscal::calcular_item(cantidad_decimal, precio_dec, desc_dec, aplica_iva);
 
-        items_calculados.push((pid, pnombre, item.cantidad, subtotal, iva, total, desc_dec));
+        items_calculados.push(ItemCalculado {
+            producto_id: pid,
+            nombre: pnombre,
+            unidad_medida,
+            cantidad: item.cantidad,
+            precio_unitario: item.precio_unitario,
+            cantidad_decimal,
+            subtotal,
+            iva,
+            total,
+            descuento: desc_dec,
+        });
     }
 
     // 4. Totales (base_gravable = subtotal; total = subtotal + iva)
-    let calc_real: Vec<(i64, Decimal, Decimal)> = req
-        .items
+    let calc_real: Vec<(Decimal, Decimal, Decimal)> = items_calculados
         .iter()
-        .map(|it| {
+        .map(|item| {
             (
-                it.cantidad,
-                fiscal::decimal_from_f64(it.precio_unitario),
-                fiscal::decimal_from_f64(it.descuento.unwrap_or(0.0)),
+                item.cantidad_decimal,
+                fiscal::decimal_from_f64(item.precio_unitario),
+                item.descuento,
             )
         })
         .collect();
-    let (subtotal_dec, descuento_dec, iva_dec, _) = fiscal::calcular_factura(&calc_real);
+    let (subtotal_dec, descuento_dec, iva_dec, _) = fiscal::calcular_factura(&calc_real, aplica_iva);
     let total_dec = subtotal_dec + iva_dec;
     let base_gravable_dec = subtotal_dec;
+    let iva_porcentaje = if aplica_iva { fiscal::IVA_PORCENTAJE_F64 } else { 0.0 };
     db.execute(
         "INSERT INTO facturas
             (prefijo, numero, numero_completo, tipo_documento, fecha_emision, fecha_vencimiento,
              cliente_id, usuario_id, subtotal, descuento, base_gravable, iva, total, iva_porcentaje,
              estado_dian, cufe, qr_code)
-         VALUES (?1,?2,?3,'01',?4,?5,?6,?7,?8,?9,?10,?11,?12,19.0,'PENDIENTE','','')",
+         VALUES (?1,?2,?3,'01',?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,'PENDIENTE','','')",
         params![
             prefijo,
             numero_actual,
@@ -598,44 +646,54 @@ pub fn crear_factura(state: State<AppState>, req: FacturaCreate) -> Result<Factu
             fiscal::decimal_to_f64(base_gravable_dec),
             fiscal::decimal_to_f64(iva_dec),
             fiscal::decimal_to_f64(total_dec),
+            iva_porcentaje,
         ],
     )
     .map_err(|e| format!("Error creando factura: {}", e))?;
     let factura_id = db.last_insert_rowid();
 
     // 6. Items + descontar stock + movimiento
-    for (pid, pnombre, cantidad, sub, iva, t, d) in &items_calculados {
+    for item in &items_calculados {
         db.execute(
             "INSERT INTO factura_items
-                (factura_id, producto_id, cantidad, descripcion, precio_unitario, descuento, subtotal, iva, total)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+                (factura_id, producto_id, cantidad, descripcion, unidad_medida, precio_unitario,
+                 descuento, subtotal, iva, total)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
             params![
                 factura_id,
-                pid,
-                cantidad,
-                pnombre,
-                // precio_unitario = (subtotal + descuento) / cantidad
-                fiscal::decimal_to_f64((*sub + *d) / Decimal::from(*cantidad)),
-                fiscal::decimal_to_f64(*d),
-                fiscal::decimal_to_f64(*sub),
-                fiscal::decimal_to_f64(*iva),
-                fiscal::decimal_to_f64(*t),
+                item.producto_id,
+                item.cantidad,
+                item.nombre,
+                item.unidad_medida,
+                item.precio_unitario,
+                fiscal::decimal_to_f64(item.descuento),
+                fiscal::decimal_to_f64(item.subtotal),
+                fiscal::decimal_to_f64(item.iva),
+                fiscal::decimal_to_f64(item.total),
             ],
         )
         .map_err(|e| format!("Error creando ítem: {}", e))?;
 
         // Descontar stock
         db.execute(
-            "UPDATE productos SET stock_actual = stock_actual - ?1 WHERE id = ?2",
-            params![cantidad, pid],
+            "UPDATE productos SET stock_actual = MAX(0, stock_actual - ?1) WHERE id = ?2",
+            params![item.cantidad, item.producto_id],
         )
         .map_err(|e| format!("Error descontando stock: {}", e))?;
 
         // Movimiento de salida
         db.execute(
-            "INSERT INTO movimientos (producto_id, tipo, cantidad, fecha, usuario_id, nota)
-             VALUES (?1, 'salida', ?2, ?3, ?4, ?5)",
-            params![pid, cantidad, fecha_emision, sesion.usuario_id, format!("Factura {numero_completo}")],
+            "INSERT INTO movimientos
+                (producto_id, tipo, cantidad, fecha, usuario_id, nota, unidad_medida)
+             VALUES (?1, 'salida', ?2, ?3, ?4, ?5, ?6)",
+            params![
+                item.producto_id,
+                item.cantidad,
+                fecha_emision,
+                sesion.usuario_id,
+                format!("Factura {numero_completo}"),
+                item.unidad_medida,
+            ],
         )
         .map_err(|e| format!("Error creando movimiento: {}", e))?;
     }

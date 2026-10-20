@@ -18,4 +18,4 @@ export const apiLogin = (username, password) =>
 export const apiMe = () => tauriInvoke('me');
 
 export const apiLogout = (refreshToken) =>
-  tauriInvoke('logout', { refresh_token: refreshToken ?? null });
+  tauriInvoke('logout', { refreshToken: refreshToken ?? null });

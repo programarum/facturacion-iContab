@@ -6,14 +6,17 @@ interface ProductoBusqueda {
   id: number;
   codigo: string;
   nombre: string;
+  descripcion?: string | null;
   precio: number;
   stock_actual: number;
+  unidad_medida: string;
 }
 
 interface ItemCarrito {
   producto_id: number;
   codigo: string;
   nombre: string;
+  unidad_medida: string;
   precio_unitario: number;
   cantidad: number;
   subtotal: number;
@@ -35,7 +38,7 @@ interface Cliente {
 
 const FacturacionPage = () => {
   const [busquedaProducto, setBusquedaProducto] = useState('');
-  const [resultadosBusqueda, setResultadosBusqueda] = useState<ProductoBusqueda[]>([]);
+  const [catalogo, setCatalogo] = useState<ProductoBusqueda[]>([]);
   const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [clienteSeleccionado, setClienteSeleccionado] = useState<number | ''>('');
@@ -45,6 +48,7 @@ const FacturacionPage = () => {
   const [error, setError] = useState('');
   const [exito, setExito] = useState('');
   const [facturaCreada, setFacturaCreada] = useState<any>(null);
+  const [aplicaIva, setAplicaIva] = useState(false);
 
   const [formCliente, setFormCliente] = useState({
     tipo_identificacion: '13',
@@ -58,6 +62,10 @@ const FacturacionPage = () => {
 
   useEffect(() => {
     cargarClientes();
+    cargarCatalogo();
+    facturacionAPI.configuracion.obtener()
+      .then((config: any) => setAplicaIva(Boolean(config?.aplica_iva)))
+      .catch(() => setAplicaIva(false));
   }, []);
 
   const cargarClientes = async () => {
@@ -69,71 +77,61 @@ const FacturacionPage = () => {
     }
   };
 
-  const buscarProductos = async () => {
-    if (busquedaProducto.length < 2) return;
+  const cargarCatalogo = async () => {
     try {
-      const data = await productosAPI.buscar(busquedaProducto);
-      setResultadosBusqueda(data);
+      const data = await productosAPI.listar({ limit: 1000 });
+      setCatalogo(data.productos);
     } catch (err: any) {
       setError(err.message);
     }
   };
 
+  const resultadosBusqueda = busquedaProducto.trim()
+    ? catalogo.filter((p) =>
+        p.nombre.toLowerCase().includes(busquedaProducto.trim().toLowerCase()) ||
+        p.codigo.toLowerCase().includes(busquedaProducto.trim().toLowerCase()) ||
+        (p.descripcion ?? '').toLowerCase().includes(busquedaProducto.trim().toLowerCase()))
+    : catalogo;
+
   const agregarAlCarrito = (producto: ProductoBusqueda) => {
+    if (producto.stock_actual <= 0) {
+      setError('Este producto no tiene existencias disponibles');
+      return;
+    }
     const existente = carrito.find(item => item.producto_id === producto.id);
     if (existente) {
-      if (existente.cantidad >= producto.stock_actual) {
-        setError('Stock insuficiente');
+      const nuevaCantidad = existente.cantidad + 1;
+      if (nuevaCantidad > producto.stock_actual + 0.000001) {
+        setError(`Stock insuficiente. Disponible: ${formatoCantidad(producto.stock_actual)} ${etiquetaUnidad(producto.unidad_medida)}`);
         return;
       }
       const nuevosItems = carrito.map(item => {
         if (item.producto_id === producto.id) {
-          const nuevaCantidad = item.cantidad + 1;
           const subtotal = nuevaCantidad * item.precio_unitario;
-          const iva = subtotal * 0.19;
+          const iva = aplicaIva ? subtotal * 0.19 : 0;
           return { ...item, cantidad: nuevaCantidad, subtotal, iva, total: subtotal + iva };
         }
         return item;
       });
       setCarrito(nuevosItems);
     } else {
-      const subtotal = producto.precio;
-      const iva = subtotal * 0.19;
+      const cantidadInicial = Math.min(1, producto.stock_actual);
+      const subtotal = cantidadInicial * producto.precio;
+      const iva = aplicaIva ? subtotal * 0.19 : 0;
       setCarrito([...carrito, {
         producto_id: producto.id,
         codigo: producto.codigo,
         nombre: producto.nombre,
+        unidad_medida: producto.unidad_medida,
         precio_unitario: producto.precio,
-        cantidad: 1,
+        cantidad: cantidadInicial,
         subtotal,
         iva,
         total: subtotal + iva,
         stock_disponible: producto.stock_actual,
       }]);
     }
-    setResultadosBusqueda([]);
     setBusquedaProducto('');
-  };
-
-  const actualizarCantidad = (productoId: number, nuevaCantidad: number) => {
-    if (nuevaCantidad <= 0) {
-      setCarrito(carrito.filter(item => item.producto_id !== productoId));
-      return;
-    }
-    const item = carrito.find(i => i.producto_id === productoId);
-    if (item && nuevaCantidad > item.stock_disponible) {
-      setError(`Stock insuficiente. Disponible: ${item.stock_disponible}`);
-      return;
-    }
-    const nuevosItems = carrito.map(item => {
-      if (item.producto_id === productoId) {
-        const subtotal = nuevaCantidad * item.precio_unitario;
-        const iva = subtotal * 0.19;
-        return { ...item, cantidad: nuevaCantidad, subtotal, iva, total: subtotal + iva };
-      }
-      return item;
-    });
-    setCarrito(nuevosItems);
   };
 
   const eliminarDelCarrito = (productoId: number) => {
@@ -193,9 +191,25 @@ const FacturacionPage = () => {
     }
   };
 
+  const descargarFactura = async () => {
+    if (!facturaCreada) return;
+    try {
+      const empresa = await facturacionAPI.configuracion.obtener();
+      generarFacturaPDF(facturaCreada, empresa);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
   const formatPrecio = (precio: number) => {
     return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(precio);
   };
+
+  const etiquetaUnidad = (unidad: string) => ({
+    unidad: 'unidad', kg: 'kg', g: 'g', l: 'L', ml: 'ml',
+  }[unidad] || unidad);
+  const formatoCantidad = (cantidad: number) =>
+    new Intl.NumberFormat('es-CO', { maximumFractionDigits: 3 }).format(cantidad);
 
   const { subtotal, iva, total } = calcularTotales();
 
@@ -204,115 +218,73 @@ const FacturacionPage = () => {
     : clientes;
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Facturacion</h1>
+    <div className="h-full min-h-0 flex flex-col">
+      <div className="shrink-0 mb-4">
+        <h1 className="text-2xl font-bold text-gray-900">Facturacion</h1>
+      </div>
 
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4 shrink-0">
           {error}
           <button onClick={() => setError('')} className="float-right font-bold">x</button>
         </div>
       )}
 
       {exito && (
-        <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
+        <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4 shrink-0">
           {exito}
           <button onClick={() => setExito('')} className="float-right font-bold">x</button>
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Columna izquierda: Buscar productos y carrito */}
-        <div className="lg:col-span-2 space-y-6">
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-6 overflow-y-auto overscroll-contain">
+        {/* Columna central: Catálogo (buscador arriba, lista con scroll propio abajo) */}
+        <section className="flex flex-col min-h-0 bg-white rounded-lg shadow lg:w-[62%] lg:shrink-0">
           {/* Buscar productos */}
-          <div className="bg-white rounded-lg shadow p-4">
+          <div className="shrink-0 p-4 border-b border-gray-200">
             <h2 className="text-lg font-semibold mb-3">Buscar Producto</h2>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={busquedaProducto}
-                onChange={(e) => setBusquedaProducto(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && buscarProductos()}
-                placeholder="Buscar por nombre o codigo..."
-                className="flex-1 border rounded px-3 py-2"
-              />
-              <button onClick={buscarProductos} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Buscar</button>
-            </div>
+            <input
+              type="text"
+              value={busquedaProducto}
+              onChange={(e) => setBusquedaProducto(e.target.value)}
+              placeholder="Filtra el catálogo por nombre o código..."
+              className="w-full border rounded px-3 py-2"
+            />
+            <p className="text-sm text-gray-500 mt-2">
+              Muestra todos los productos; mientras escribes, el listado se reduce a las coincidencias.
+            </p>
+          </div>
 
-            {resultadosBusqueda.length > 0 && (
-              <div className="mt-3 border rounded divide-y max-h-48 overflow-y-auto">
-                {resultadosBusqueda.map((p) => (
-                  <div key={p.id} className="flex justify-between items-center p-3 hover:bg-gray-50 cursor-pointer" onClick={() => agregarAlCarrito(p)}>
-                    <div>
-                      <p className="font-medium">{p.nombre} <span className="text-gray-500 text-sm">({p.codigo})</span></p>
-                      <p className="text-sm text-gray-500">Stock: {p.stock_actual} | {formatPrecio(p.precio)}</p>
+          {/* Catálogo completo, filtrado al instante mientras escribe */}
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+            <div className="border-t border-gray-200">
+              <div className="flex justify-between px-3 py-2 border-b border-gray-200">
+                <h3 className="text-sm font-semibold">Productos</h3>
+                <span className="text-xs text-gray-500">{resultadosBusqueda.length} de {catalogo.length}</span>
+              </div>
+              {resultadosBusqueda.length === 0 ? (
+                <p className="text-gray-500 text-center py-6">No hay productos que coincidan.</p>
+              ) : (
+                <div className="divide-y">
+                  {resultadosBusqueda.map((p) => (
+                    <div key={p.id} className="flex justify-between items-center p-3 hover:bg-gray-50 cursor-pointer" onClick={() => agregarAlCarrito(p)}>
+                      <div>
+                        <p className="font-medium">{p.nombre} <span className="text-gray-500 text-sm">({p.codigo})</span></p>
+                        <p className="text-sm text-gray-500">Stock: {formatoCantidad(p.stock_actual)} {etiquetaUnidad(p.unidad_medida)} | {formatPrecio(p.precio)} / {etiquetaUnidad(p.unidad_medida)}</p>
+                      </div>
+                      <button className="bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600">+</button>
                     </div>
-                    <button className="bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600">+</button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Carrito */}
-          <div className="bg-white rounded-lg shadow p-4">
-            <h2 className="text-lg font-semibold mb-3">Carrito de Venta</h2>
-            {carrito.length === 0 ? (
-              <p className="text-gray-500 text-center py-6">Busca y agrega productos</p>
-            ) : (
-              <div>
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b text-sm text-gray-500">
-                      <th className="text-left py-2">Producto</th>
-                      <th className="text-center py-2">Precio</th>
-                      <th className="text-center py-2">Cant.</th>
-                      <th className="text-center py-2">Subtotal</th>
-                      <th className="text-center py-2">IVA</th>
-                      <th className="text-center py-2">Total</th>
-                      <th className="py-2"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {carrito.map((item) => (
-                      <tr key={item.producto_id} className="border-b">
-                        <td className="py-3">
-                          <p className="font-medium text-sm">{item.nombre}</p>
-                          <p className="text-xs text-gray-500">{item.codigo}</p>
-                        </td>
-                        <td className="text-center text-sm">{formatPrecio(item.precio_unitario)}</td>
-                        <td className="text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            <button onClick={() => actualizarCantidad(item.producto_id, item.cantidad - 1)} className="w-6 h-6 bg-gray-200 rounded text-sm">-</button>
-                            <span className="w-8 text-center text-sm">{item.cantidad}</span>
-                            <button onClick={() => actualizarCantidad(item.producto_id, item.cantidad + 1)} className="w-6 h-6 bg-gray-200 rounded text-sm">+</button>
-                          </div>
-                        </td>
-                        <td className="text-center text-sm">{formatPrecio(item.subtotal)}</td>
-                        <td className="text-center text-sm">{formatPrecio(item.iva)}</td>
-                        <td className="text-center text-sm font-medium">{formatPrecio(item.total)}</td>
-                        <td className="text-center">
-                          <button onClick={() => eliminarDelCarrito(item.producto_id)} className="text-red-500 hover:text-red-700 text-sm">x</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-
-                <div className="mt-4 border-t pt-4 space-y-1 text-right">
-                  <p className="text-sm">Subtotal: <span className="font-medium">{formatPrecio(subtotal)}</span></p>
-                  <p className="text-sm">IVA 19%: <span className="font-medium">{formatPrecio(iva)}</span></p>
-                  <p className="text-lg font-bold">Total: {formatPrecio(total)}</p>
+                  ))}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
-        </div>
+        </section>
 
-        {/* Columna derecha: Cliente y facturar */}
-        <div className="space-y-6">
+        {/* Columna derecha: Cliente, Carrito de Venta y Resumen */}
+        <div className="flex flex-col min-h-0 gap-4 lg:w-[32%] lg:shrink-0 lg:ml-auto">
           {/* Seleccionar cliente */}
-          <div className="bg-white rounded-lg shadow p-4">
+          <section className="bg-white rounded-lg shadow p-4 shrink-0">
             <h2 className="text-lg font-semibold mb-3">Cliente</h2>
             <input
               type="text"
@@ -332,24 +304,58 @@ const FacturacionPage = () => {
               ))}
             </select>
             <button onClick={() => setShowNuevoCliente(true)} className="w-full text-blue-600 text-sm hover:underline">+ Crear nuevo cliente</button>
-          </div>
+          </section>
 
-          {/* Resumen */}
-          <div className="bg-white rounded-lg shadow p-4">
-            <h2 className="text-lg font-semibold mb-3">Resumen</h2>
-            <div className="space-y-2 text-sm">
-              <p>Productos en carrito: <span className="font-medium">{carrito.length}</span></p>
-              <p>Cantidad total: <span className="font-medium">{carrito.reduce((sum, item) => sum + item.cantidad, 0)}</span></p>
-              <p className="text-lg font-bold border-t pt-2 mt-2">Total: {formatPrecio(total)}</p>
-            </div>
+          {/* Carrito de Venta */}
+          <section className="bg-white rounded-lg shadow p-4 flex-1 min-h-0 flex flex-col">
+            <h2 className="text-lg font-semibold mb-3 shrink-0">Carrito de Venta</h2>
+            {carrito.length === 0 ? (
+              <p className="text-gray-500 text-center py-6">Busca y agrega productos</p>
+            ) : (
+              <div className="flex-1 min-h-0 divide-y divide-gray-100 overflow-y-auto overscroll-contain">
+                {carrito.map((item) => (
+                  <div key={item.producto_id} className="flex items-start justify-between gap-3 py-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium break-words text-gray-900">{item.nombre}</p>
+                      <p className="text-xs text-gray-500">{item.codigo}</p>
+                      <div className="mt-1 space-y-0.5">
+                        <p className="text-xs text-gray-600">
+                          Cantidad: <span className="font-medium text-gray-900">{formatoCantidad(item.cantidad)} {etiquetaUnidad(item.unidad_medida)}</span>
+                        </p>
+                        {aplicaIva && <p className="text-xs text-gray-500">IVA: {formatPrecio(item.iva)}</p>}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <span className="text-sm font-semibold text-gray-900">{formatPrecio(item.total)}</span>
+                      <button
+                        onClick={() => eliminarDelCarrito(item.producto_id)}
+                        className="text-xs font-medium text-red-500 hover:text-red-700"
+                        aria-label={`Quitar ${item.nombre} del carrito`}
+                      >
+                        Quitar
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {carrito.length > 0 && (
+              <div className="mt-4 border-t pt-4 space-y-1 text-right">
+                <p className="text-sm">Subtotal: <span className="font-medium">{formatPrecio(subtotal)}</span></p>
+                {aplicaIva && <p className="text-sm">IVA 19%: <span className="font-medium">{formatPrecio(iva)}</span></p>}
+                <p className="text-lg font-bold">Total: {formatPrecio(total)}</p>
+              </div>
+            )}
+
             <button
               onClick={handleCrearFactura}
               disabled={loading || carrito.length === 0 || !clienteSeleccionado}
-              className="w-full mt-4 bg-green-600 text-white py-3 rounded hover:bg-green-700 disabled:bg-gray-400 font-medium"
+              className="w-full mt-auto bg-green-600 text-white py-3 rounded hover:bg-green-700 disabled:bg-gray-400 font-medium"
             >
               {loading ? 'Procesando...' : 'Generar Factura'}
             </button>
-          </div>
+          </section>
 
           {/* Factura creada */}
           {facturaCreada && (
@@ -359,7 +365,7 @@ const FacturacionPage = () => {
               <p className="text-sm">Total: <span className="font-medium">{formatPrecio(facturaCreada.total)}</span></p>
               <p className="text-sm">CUFE: <span className="text-xs break-all">{facturaCreada.cufe}</span></p>
               <button
-                onClick={() => generarFacturaPDF(facturaCreada)}
+                onClick={descargarFactura}
                 className="mt-3 w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 text-sm font-medium"
               >
                 Descargar PDF
@@ -372,15 +378,15 @@ const FacturacionPage = () => {
 
       {/* Modal nuevo cliente */}
       {showNuevoCliente && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-3 sm:p-5">
+          <div className="mx-auto my-2 max-h-[calc(100dvh-1.5rem)] w-full max-w-md overflow-y-auto rounded-lg bg-white p-4 sm:my-4 sm:p-6">
             <h2 className="text-xl font-bold mb-4">Nuevo Cliente</h2>
-                  {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-          {error}
-          <button onClick={() => setError('')} className="float-right font-bold">x</button>
-        </div>
-      )}
+            {error && (
+              <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+                {error}
+                <button onClick={() => setError('')} className="float-right font-bold">x</button>
+              </div>
+            )}
             <form onSubmit={handleCrearCliente} className="space-y-3">
               <div>
                 <label className="block text-sm font-medium mb-1">Tipo ID *</label>

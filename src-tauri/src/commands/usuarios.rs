@@ -104,6 +104,7 @@ pub fn crear_usuario(state: State<AppState>, req: UsuarioCreate) -> Result<Usuar
         return Err("No autorizado".to_string());
     }
 
+    security::validar_password(&req.password)?;
     let (hash, salt) = security::hash_password(&req.password)?;
     let rol = req.rol.unwrap_or_else(|| "usuario".to_string()).to_lowercase();
 
@@ -147,12 +148,60 @@ pub fn actualizar_usuario(state: State<AppState>, id: i64, req: UsuarioUpdate) -
     }
 
     let db = state.db.lock().unwrap();
-    let existe: Option<i64> = db
-        .query_row("SELECT id FROM usuarios WHERE id = ?1", params![id], |r| r.get(0))
+    let actual: Option<(String, bool, bool)> = db
+        .query_row(
+            "SELECT rol, activo, bloqueado FROM usuarios WHERE id = ?1",
+            params![id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
         .optional()
         .map_err(|e| format!("Error consultando usuario: {}", e))?;
-    if existe.is_none() {
-        return Err("Usuario no encontrado".to_string());
+    let (rol_actual, activo_actual, bloqueado_actual) =
+        actual.ok_or_else(|| "Usuario no encontrado".to_string())?;
+
+    if let Some(rol) = &req.rol {
+        if !matches!(rol.as_str(), "admin" | "moderador" | "usuario") {
+            return Err("El rol indicado no es válido".to_string());
+        }
+    }
+
+    if let Some(email) = &req.email {
+        let duplicado: Option<i64> = db
+            .query_row(
+                "SELECT id FROM usuarios WHERE LOWER(email) = LOWER(?1) AND id <> ?2",
+                params![email, id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| format!("Error verificando el email: {e}"))?;
+        if duplicado.is_some() {
+            return Err(format!("El email '{email}' ya está registrado"));
+        }
+    }
+
+    let rol_nuevo = req.rol.as_deref().unwrap_or(&rol_actual);
+    let activo_nuevo = req.activo.unwrap_or(activo_actual);
+    let bloqueado_nuevo = req.bloqueado.unwrap_or(bloqueado_actual);
+    if id == sesion.usuario_id
+        && (rol_nuevo != "admin" || !activo_nuevo || bloqueado_nuevo)
+    {
+        return Err("No puedes desactivar, bloquear o quitarte el rol de administrador".to_string());
+    }
+
+    let era_admin_activo = rol_actual == "admin" && activo_actual && !bloqueado_actual;
+    let seguira_admin_activo = rol_nuevo == "admin" && activo_nuevo && !bloqueado_nuevo;
+    if era_admin_activo && !seguira_admin_activo {
+        let administradores_activos: i64 = db
+            .query_row(
+                "SELECT COUNT(*) FROM usuarios
+                 WHERE rol = 'admin' AND activo = 1 AND bloqueado = 0",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| format!("Error verificando administradores: {e}"))?;
+        if administradores_activos <= 1 {
+            return Err("No se puede desactivar o degradar al último administrador activo".to_string());
+        }
     }
 
     let mut set_parts: Vec<String> = Vec::new();
@@ -206,6 +255,7 @@ pub fn cambiar_password(state: State<AppState>, req: CambiarPasswordReq) -> Resu
         return Err("No autorizado".to_string());
     }
 
+    security::validar_password(&req.nueva_password)?;
     let (hash, salt) = security::hash_password(&req.nueva_password)?;
     let ahora = ahora_iso8601();
     let futuro = db::futuro_90_dias_iso8601();

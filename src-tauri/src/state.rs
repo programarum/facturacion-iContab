@@ -19,15 +19,17 @@ pub struct Sesion {
 pub struct AppState {
     pub db: Mutex<Connection>,
     pub sesion: Mutex<Option<Sesion>>,
+    pub backup_status: Mutex<String>,
     // Rate limiter global (por ip:username key)
     pub rate_limiter: crate::security::RateLimiter,
 }
 
 impl AppState {
-    pub fn new(db: Connection) -> Self {
+    pub fn new(db: Connection, backup_status: String) -> Self {
         Self {
             db: Mutex::new(db),
             sesion: Mutex::new(None),
+            backup_status: Mutex::new(backup_status),
             rate_limiter: crate::security::RateLimiter::new(),
         }
     }

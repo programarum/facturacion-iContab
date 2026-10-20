@@ -7,6 +7,8 @@ import autoTable from 'jspdf-autotable';
 
 const formatCOP = (valor: number): string =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(valor);
+const formatCantidad = (cantidad: number): string =>
+  new Intl.NumberFormat('es-CO', { maximumFractionDigits: 3 }).format(cantidad);
 
 // Estructura del dato de factura que devuelve el comando crear_factura (src-tauri)
 interface FacturaPDF {
@@ -31,6 +33,7 @@ interface FacturaPDF {
   };
   items: {
     cantidad: number;
+    unidad_medida?: string;
     descripcion: string;
     precio_unitario: number;
     descuento?: number;
@@ -56,7 +59,6 @@ export interface EmpresaEmisora {
 export const generarFacturaPDF = (
   factura: FacturaPDF,
   empresa?: EmpresaEmisora,
-  opciones: { imprimir?: boolean; ventanaImpresion?: Window | null } = {},
 ): void => {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -117,27 +119,30 @@ export const generarFacturaPDF = (
   y += 26;
 
   // ---------- Tabla de items ----------
+  const conIva = (factura.iva_porcentaje ?? 0) > 0 || (factura.iva ?? 0) > 0;
   autoTable(doc, {
     startY: y,
     margin: { left: margin, right: margin },
-    head: [['Cant', 'Descripcion', 'P. Unitario', 'Subtotal', 'IVA', 'Total']],
+    head: [conIva
+      ? ['Cant', 'Descripcion', 'P. Unitario', 'Subtotal', 'IVA', 'Total']
+      : ['Cant', 'Descripcion', 'P. Unitario', 'Subtotal', 'Total']],
     body: factura.items.map((item) => [
-      String(item.cantidad),
+      `${formatCantidad(item.cantidad)} ${item.unidad_medida || ''}`.trim(),
       item.descripcion,
       formatCOP(item.precio_unitario),
       formatCOP(item.subtotal),
-      formatCOP(item.iva || 0),
+      ...(conIva ? [formatCOP(item.iva || 0)] : []),
       formatCOP(item.total),
     ]),
     styles: { fontSize: 8, cellPadding: 2 },
     headStyles: { fillColor: [31, 41, 55], fontSize: 8 },
     columnStyles: {
-      0: { cellWidth: 12, halign: 'center' },
+      0: { cellWidth: 20, halign: 'center' },
       1: { cellWidth: 'auto' },
       2: { cellWidth: 30, halign: 'right' },
       3: { cellWidth: 30, halign: 'right' },
-      4: { cellWidth: 28, halign: 'right' },
-      5: { cellWidth: 30, halign: 'right' },
+      ...(conIva ? { 4: { cellWidth: 28, halign: 'right' } } : {}),
+      [conIva ? 5 : 4]: { cellWidth: 30, halign: 'right' },
     },
   });
 
@@ -146,17 +151,22 @@ export const generarFacturaPDF = (
   const rightX = pageWidth - margin;
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
-  doc.text(`Subtotal:`, rightX - 45, finalY, { align: 'right' });
-  doc.text(formatCOP(factura.subtotal || 0), rightX, finalY, { align: 'right' });
-  doc.text(`IVA (${factura.iva_porcentaje || 0}%):`, rightX - 45, finalY + 6, { align: 'right' });
-  doc.text(formatCOP(factura.iva || 0), rightX, finalY + 6, { align: 'right' });
+  let totalesY = finalY;
+  doc.text(`Subtotal:`, rightX - 45, totalesY, { align: 'right' });
+  doc.text(formatCOP(factura.subtotal || 0), rightX, totalesY, { align: 'right' });
+  if (conIva) {
+    totalesY += 6;
+    doc.text(`IVA (${factura.iva_porcentaje || 0}%):`, rightX - 45, totalesY, { align: 'right' });
+    doc.text(formatCOP(factura.iva || 0), rightX, totalesY, { align: 'right' });
+  }
   if (factura.descuento) {
-    doc.text(`Descuento:`, rightX - 45, finalY + 12, { align: 'right' });
-    doc.text(formatCOP(factura.descuento), rightX, finalY + 12, { align: 'right' });
+    totalesY += 6;
+    doc.text(`Descuento:`, rightX - 45, totalesY, { align: 'right' });
+    doc.text(formatCOP(factura.descuento), rightX, totalesY, { align: 'right' });
   }
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(12);
-  const totalY = finalY + (factura.descuento ? 18 : 12);
+  const totalY = totalesY + 6;
   doc.text(`TOTAL:`, rightX - 45, totalY, { align: 'right' });
   doc.text(formatCOP(factura.total), rightX, totalY, { align: 'right' });
 
@@ -167,17 +177,6 @@ export const generarFacturaPDF = (
     doc.text('CUFE (Estructura de Factura Electronica de Venta):', margin, totalY + 14);
     const cufeLines = doc.splitTextToSize(factura.cufe, pageWidth - margin * 2);
     doc.text(cufeLines, margin, totalY + 19);
-  }
-
-  if (opciones.imprimir) {
-    const ventana = opciones.ventanaImpresion || window.open('', '_blank');
-    if (!ventana) {
-      throw new Error('No se pudo abrir la ventana de impresión. Permite las ventanas emergentes e inténtalo de nuevo.');
-    }
-    doc.autoPrint();
-    const pdfUrl = doc.output('bloburl');
-    ventana.location.href = pdfUrl.toString();
-    return;
   }
 
   doc.save(`factura_${factura.numero_completo.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);

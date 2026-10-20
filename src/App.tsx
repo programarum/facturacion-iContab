@@ -10,6 +10,9 @@ import MovimientosPage from './pages/MovimientosPage';
 import FacturacionPage from './pages/FacturacionPage';
 import UsuariosPage from './pages/UsuariosPage';
 import HistorialFacturasPage from './pages/HistorialFacturasPage';
+import ConfiguracionPage from './pages/ConfiguracionPage';
+import LicenseGate from './components/LicenseGate';
+import { DemoGate, DemoProvider } from '@demo';
 
 const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, loading } = useAuth();
@@ -30,6 +33,9 @@ const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
 
 function App() {
   return (
+    <LicenseGate>
+    <DemoProvider>
+    <DemoGate>
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
@@ -40,9 +46,13 @@ function App() {
         <Route path="/facturacion" element={<PrivateRoute><MainLayout><FacturacionPage /></MainLayout></PrivateRoute>} />
         <Route path="/historial-facturas" element={<PrivateRoute><MainLayout><HistorialFacturasPage /></MainLayout></PrivateRoute>} />
         <Route path="/usuarios" element={<PrivateRoute><MainLayout><UsuariosPage /></MainLayout></PrivateRoute>} />
+        <Route path="/configuracion" element={<PrivateRoute><MainLayout><ConfiguracionPage /></MainLayout></PrivateRoute>} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>
+    </DemoGate>
+    </DemoProvider>
+    </LicenseGate>
   );
 }
 

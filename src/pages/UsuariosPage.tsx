@@ -20,12 +20,17 @@ const UsuariosPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showModal, setShowModal] = useState(false);
+  const [editando, setEditando] = useState<Usuario | null>(null);
+  const [usuarioPassword, setUsuarioPassword] = useState<Usuario | null>(null);
+  const [nuevaPassword, setNuevaPassword] = useState("");
+  const [confirmarPassword, setConfirmarPassword] = useState("");
   const [form, setForm] = useState({
     username: "",
     email: "",
     password: "",
     nombre: "",
     rol: "usuario",
+    activo: true,
   });
 
   useEffect(() => {
@@ -33,10 +38,6 @@ const UsuariosPage = () => {
       cargarUsuarios();
     }
   }, [user]);
-
-  const getErrorMessage = (err: any) => {
-    const data = err?.response?.data;
-  }
 
   const cargarUsuarios = async () => {
     try {
@@ -54,16 +55,75 @@ const UsuariosPage = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await usuariosAPI.crear(form);
+      if (editando) {
+        await usuariosAPI.actualizar(editando.id, {
+          nombre: form.nombre,
+          email: form.email,
+          rol: form.rol,
+          activo: form.activo,
+        });
+      } else {
+        await usuariosAPI.crear({
+          username: form.username,
+          email: form.email,
+          password: form.password,
+          nombre: form.nombre,
+          rol: form.rol,
+        });
+      }
       setShowModal(false);
+      setEditando(null);
       setForm({
         username: "",
         email: "",
         password: "",
         nombre: "",
         rol: "usuario",
+        activo: true,
       });
-      cargarUsuarios();
+      await cargarUsuarios();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const abrirNuevo = () => {
+    setEditando(null);
+    setForm({ username: "", email: "", password: "", nombre: "", rol: "usuario", activo: true });
+    setShowModal(true);
+  };
+
+  const abrirEdicion = (usuario: Usuario) => {
+    setEditando(usuario);
+    setForm({
+      username: usuario.username,
+      email: usuario.email,
+      password: "",
+      nombre: usuario.nombre,
+      rol: usuario.rol,
+      activo: usuario.activo,
+    });
+    setError("");
+    setShowModal(true);
+  };
+
+  const handleCambiarPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!usuarioPassword) return;
+    if (nuevaPassword.length < 8) {
+      setError("La contraseña debe tener al menos 8 caracteres.");
+      return;
+    }
+    if (nuevaPassword !== confirmarPassword) {
+      setError("Las contraseñas no coinciden.");
+      return;
+    }
+    try {
+      await usuariosAPI.cambiarPassword(usuarioPassword.id, nuevaPassword);
+      setUsuarioPassword(null);
+      setNuevaPassword("");
+      setConfirmarPassword("");
+      setError("");
     } catch (err: any) {
       setError(err.message);
     }
@@ -107,19 +167,12 @@ const UsuariosPage = () => {
   }
 
   return (
-    <div>
+    <div className="h-full min-h-0 overflow-y-auto overscroll-contain">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Usuarios</h1>
         <button
           onClick={() => {
-            setForm({
-              username: "",
-              email: "",
-              password: "",
-              nombre: "",
-              rol: "usuario",
-            });
-            setShowModal(true);
+            abrirNuevo();
           }}
           className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
         >
@@ -140,7 +193,8 @@ const UsuariosPage = () => {
       )}
 
       <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
+        <div className="overflow-x-auto">
+        <table className="min-w-[760px] divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
@@ -207,9 +261,20 @@ const UsuariosPage = () => {
                     {formatFecha(u.ultimo_acceso)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-center text-sm">
+                    <button onClick={() => abrirEdicion(u)} className="mr-3 text-blue-600 hover:text-blue-900">
+                      Editar
+                    </button>
+                    <button
+                      onClick={() => { setUsuarioPassword(u); setNuevaPassword(""); setConfirmarPassword(""); setError(""); }}
+                      className="mr-3 text-indigo-600 hover:text-indigo-900"
+                    >
+                      Clave
+                    </button>
                     <button
                       onClick={() => handleToggleBloqueo(u)}
-                      className={`${u.bloqueado ? "text-green-600 hover:text-green-900" : "text-red-600 hover:text-red-900"}`}
+                      disabled={u.id === user?.id}
+                      title={u.id === user?.id ? "No puedes bloquear tu propia cuenta" : undefined}
+                      className={`${u.id === user?.id ? "cursor-not-allowed text-gray-400" : u.bloqueado ? "text-green-600 hover:text-green-900" : "text-red-600 hover:text-red-900"}`}
                     >
                       {u.bloqueado ? "Desbloquear" : "Bloquear"}
                     </button>
@@ -219,12 +284,13 @@ const UsuariosPage = () => {
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h2 className="text-xl font-bold mb-4">Nuevo Usuario</h2>
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-3 sm:p-5">
+          <div className="mx-auto my-2 max-h-[calc(100dvh-1.5rem)] w-full max-w-md overflow-y-auto rounded-lg bg-white p-4 shadow-lg sm:my-4 sm:p-6">
+            <h2 className="text-xl font-bold mb-4">{editando ? "Editar Usuario" : "Nuevo Usuario"}</h2>
             {error && (
               <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
                 {error}
@@ -250,6 +316,7 @@ const UsuariosPage = () => {
                   className="w-full border rounded px-3 py-2"
                   required
                   minLength={3}
+                  disabled={!!editando}
                 />
               </div>
               <div>
@@ -276,7 +343,7 @@ const UsuariosPage = () => {
                   required
                 />
               </div>
-              <div>
+              {!editando && <div>
                 <label className="block text-sm font-medium mb-1">
                   Password *
                 </label>
@@ -294,7 +361,7 @@ const UsuariosPage = () => {
                   Minimo 8 caracteres, mayuscula, minuscula, numero y caracter
                   especial
                 </p>
-              </div>
+              </div>}
               <div>
                 <label className="block text-sm font-medium mb-1">Rol</label>
                 <select
@@ -307,10 +374,21 @@ const UsuariosPage = () => {
                   <option value="admin">Admin</option>
                 </select>
               </div>
+              {editando && (
+                <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={form.activo}
+                    onChange={(e) => setForm({ ...form, activo: e.target.checked })}
+                    disabled={editando.id === user?.id}
+                  />
+                  Usuario activo
+                </label>
+              )}
               <div className="flex justify-end gap-3 pt-4">
                 <button
                   type="button"
-                  onClick={() => setShowModal(false)}
+                  onClick={() => { setShowModal(false); setEditando(null); }}
                   className="px-4 py-2 border rounded hover:bg-gray-100"
                 >
                   Cancelar
@@ -319,7 +397,50 @@ const UsuariosPage = () => {
                   type="submit"
                   className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
                 >
-                  Crear Usuario
+                  {editando ? "Guardar Cambios" : "Crear Usuario"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {usuarioPassword && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-3 sm:p-5">
+          <div className="mx-auto my-2 max-h-[calc(100dvh-1.5rem)] w-full max-w-md overflow-y-auto rounded-lg bg-white p-4 shadow-xl sm:my-4 sm:p-6">
+            <h2 className="mb-2 text-xl font-bold">Cambiar contraseña</h2>
+            <p className="mb-4 text-sm text-gray-600">Usuario: {usuarioPassword.username}</p>
+            {error && <p role="alert" className="mb-4 rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+            <form onSubmit={handleCambiarPassword} className="space-y-4">
+              <input
+                type="password"
+                value={nuevaPassword}
+                onChange={(e) => setNuevaPassword(e.target.value)}
+                className="w-full rounded border px-3 py-2"
+                placeholder="Nueva contraseña"
+                minLength={8}
+                required
+              />
+              <p className="-mt-2 text-xs text-gray-500">Mínimo 8 caracteres, con mayúscula, minúscula, número y carácter especial.</p>
+              <input
+                type="password"
+                value={confirmarPassword}
+                onChange={(e) => setConfirmarPassword(e.target.value)}
+                className="w-full rounded border px-3 py-2"
+                placeholder="Confirmar contraseña"
+                minLength={8}
+                required
+              />
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => { setUsuarioPassword(null); setError(""); }}
+                  className="rounded border px-4 py-2"
+                >
+                  Cancelar
+                </button>
+                <button type="submit" className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700">
+                  Cambiar
                 </button>
               </div>
             </form>

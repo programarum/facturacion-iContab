@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.1.0"
+version = "0.1.1"
 description = "iContab - Sistema de Facturacion"
 authors = ["you"]
 license = ""
@@ -12,6 +12,13 @@ rust-version = "1.77.2"
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+default = []
+# Compila el build de DEMOSTRACIÓN: siembra los datos de la "Tienda Mixta" y
+# desactiva la verificación de licencia (build de venta/presentación).
+# Sin este feature se compila el build NORMAL (datos genéricos + licencia).
+demo = []
+
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }
 
@@ -22,9 +29,10 @@ log = "0.4"
 tauri = { version = "2.11.3", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
 
 # Base de datos embebida
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.31", features = ["bundled", "backup"] }
 
 # Seguridad
 argon2 = "0.5"
@@ -38,3 +46,8 @@ rust_decimal = "1"
 base64 = "0.22"
 uuid = { version = "1", features = ["v4"] }
 thiserror = "1"
+ed25519-dalek = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winreg = "0.55"

@@ -1,6 +1,7 @@
 // src-tauri/src/commands/mod.rs
 // Comandos Tauri: lógica de negocio portada desde el backend Python.
 pub mod auth;
+pub mod ajustes;
 pub mod catalogo;
 pub mod movimientos;
 pub mod usuarios;

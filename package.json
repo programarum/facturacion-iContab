@@ -5,22 +5,30 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "dev:demo": "vite --mode demo",
+    "build": "vite build && node scripts/verificar-build.mjs normal",
+    "build:demo": "vite build --mode demo && node scripts/verificar-build.mjs demo",
     "lint": "eslint .",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
+    "tauri:dev:demo": "tauri dev --features=demo --config src-tauri/tauri.demo.conf.json",
     "tauri:build": "tauri build",
-    "tauri:build:windows": "tauri build --target x86_64-pc-windows-msvc"
+    "tauri:build:windows": "tauri build --target x86_64-pc-windows-msvc",
+    "tauri:build:windows:x86": "tauri build --target i686-pc-windows-msvc",
+    "tauri:build:demo": "tauri build --features=demo --config src-tauri/tauri.demo.conf.json",
+    "tauri:build:windows:demo": "tauri build --features=demo --config src-tauri/tauri.demo.conf.json --target x86_64-pc-windows-msvc"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.1",
+    "@tauri-apps/plugin-dialog": "^2.7.3",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-router-dom": "^7.18.0",
-    "recharts": "^3.9.0"
+    "recharts": "^3.9.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

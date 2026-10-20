@@ -1,8 +1,9 @@
 // src-tauri/src/db.rs
 // Módulo de base de datos: esquema SQLite embebido + conexión persistente + seed inicial.
-use rusqlite::{Connection, params};
-use std::path::{Path, PathBuf};
+use rusqlite::{params, Connection};
+use std::collections::HashSet;
 use std::fs;
+use std::path::{Path, PathBuf};
 use tauri::Manager;
 use thiserror::Error;
 
@@ -49,6 +50,12 @@ CREATE TABLE IF NOT EXISTS usuarios (
     ip_ultimo_acceso TEXT
 );
 
+-- ============ AJUSTES DE LA APLICACIÓN ==========
+CREATE TABLE IF NOT EXISTS ajustes_app (
+    clave TEXT PRIMARY KEY,
+    valor TEXT NOT NULL
+);
+
 -- ============ LOGS (básico, relaciones) ============
 CREATE TABLE IF NOT EXISTS logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,10 +76,13 @@ CREATE TABLE IF NOT EXISTS productos (
     nombre TEXT NOT NULL,
     descripcion TEXT,
     categoria_id INTEGER NOT NULL REFERENCES categorias(id),
-    stock_actual INTEGER NOT NULL DEFAULT 0,
-    stock_minimo INTEGER NOT NULL DEFAULT 5,
-    stock_maximo INTEGER NOT NULL DEFAULT 100,
-    precio REAL NOT NULL DEFAULT 0.0
+    stock_actual REAL NOT NULL DEFAULT 0,
+    stock_minimo REAL NOT NULL DEFAULT 5,
+    stock_maximo REAL NOT NULL DEFAULT 100,
+    precio REAL NOT NULL DEFAULT 0.0,
+    costo REAL,
+    ubicacion TEXT,
+    unidad_medida TEXT NOT NULL DEFAULT 'unidad'
 );
 
 -- ============ MOVIMIENTOS ============
@@ -80,10 +90,11 @@ CREATE TABLE IF NOT EXISTS movimientos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     producto_id INTEGER NOT NULL REFERENCES productos(id),
     tipo TEXT NOT NULL,
-    cantidad INTEGER NOT NULL,
+    cantidad REAL NOT NULL,
     fecha TEXT,
     usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
-    nota TEXT
+    nota TEXT,
+    unidad_medida TEXT NOT NULL DEFAULT 'unidad'
 );
 
 -- ============ REFRESH TOKENS ============
@@ -156,7 +167,9 @@ CREATE TABLE IF NOT EXISTS configuracion_empresa (
     certificado_password TEXT,
     numero_resolucion TEXT,
     fecha_resolucion TEXT,
-    fecha_vencimiento_resolucion TEXT
+    fecha_vencimiento_resolucion TEXT,
+    tipo_negocio TEXT NOT NULL DEFAULT 'general',
+    aplica_iva INTEGER NOT NULL DEFAULT 0
 );
 
 -- ============ FACTURAS ============
@@ -189,8 +202,9 @@ CREATE TABLE IF NOT EXISTS factura_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     factura_id INTEGER NOT NULL REFERENCES facturas(id),
     producto_id INTEGER NOT NULL REFERENCES productos(id),
-    cantidad INTEGER NOT NULL,
+    cantidad REAL NOT NULL,
     descripcion TEXT NOT NULL,
+    unidad_medida TEXT NOT NULL DEFAULT 'unidad',
     precio_unitario REAL NOT NULL,
     descuento REAL NOT NULL DEFAULT 0.0,
     subtotal REAL NOT NULL,
@@ -211,7 +225,73 @@ pub fn abrir_conexion(path: &Path) -> Result<Connection, DbError> {
     let conn = Connection::open(path)?;
     conn.execute_batch("PRAGMA foreign_keys = ON;")?;
     conn.execute_batch(SCHEMA)?;
+    migrar_columnas_productos(&conn)?;
+    migrar_columnas_configuracion_empresa(&conn)?;
+    migrar_columnas_unidad_medida(&conn)?;
     Ok(conn)
+}
+
+/// Añade unidad de medida a registros históricos; SQLite permite valores REAL
+/// en columnas INTEGER existentes, por lo que no requiere reconstruir las tablas.
+fn migrar_columnas_unidad_medida(conn: &Connection) -> Result<(), rusqlite::Error> {
+    for (tabla, columna) in [
+        ("productos", "unidad_medida"),
+        ("movimientos", "unidad_medida"),
+        ("factura_items", "unidad_medida"),
+    ] {
+        let mut stmt = conn.prepare(&format!("PRAGMA table_info({tabla})"))?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+        let columnas: HashSet<String> = rows.collect::<Result<_, _>>()?;
+        drop(stmt);
+
+        if !columnas.contains(columna) {
+            conn.execute(
+                &format!(
+                    "ALTER TABLE {tabla} ADD COLUMN {columna} TEXT NOT NULL DEFAULT 'unidad'"
+                ),
+                [],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Agrega campos de perfil de negocio a bases de datos existentes.
+fn migrar_columnas_configuracion_empresa(conn: &Connection) -> Result<(), rusqlite::Error> {
+    let mut stmt = conn.prepare("PRAGMA table_info(configuracion_empresa)")?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    let columnas: HashSet<String> = rows.collect::<Result<_, _>>()?;
+    drop(stmt);
+
+    if !columnas.contains("tipo_negocio") {
+        conn.execute(
+            "ALTER TABLE configuracion_empresa ADD COLUMN tipo_negocio TEXT NOT NULL DEFAULT 'general'",
+            [],
+        )?;
+    }
+    if !columnas.contains("aplica_iva") {
+        conn.execute(
+            "ALTER TABLE configuracion_empresa ADD COLUMN aplica_iva INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+    Ok(())
+}
+
+/// Agrega campos introducidos en versiones nuevas sin afectar datos existentes.
+fn migrar_columnas_productos(conn: &Connection) -> Result<(), rusqlite::Error> {
+    let mut stmt = conn.prepare("PRAGMA table_info(productos)")?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    let columnas: HashSet<String> = rows.collect::<Result<_, _>>()?;
+    drop(stmt);
+
+    if !columnas.contains("costo") {
+        conn.execute("ALTER TABLE productos ADD COLUMN costo REAL", [])?;
+    }
+    if !columnas.contains("ubicacion") {
+        conn.execute("ALTER TABLE productos ADD COLUMN ubicacion TEXT", [])?;
+    }
+    Ok(())
 }
 
 /// Abre la conexión en el directorio de datos de la app (persistente de usuario).
@@ -317,28 +397,32 @@ pub fn insertar_categoria(
     Ok(conn.last_insert_rowid())
 }
 
-/// Inserta un producto por código (ignora si ya existe).
+/// Inserta un producto del seed inicial con su unidad de medida, costo y
+/// ubicación. Devuelve el id generado e ignora el código si ya existe.
 pub fn insertar_producto(
     conn: &Connection,
     codigo: &str,
     nombre: &str,
     categoria_id: i64,
     precio: f64,
-    stock_actual: i64,
-    stock_minimo: i64,
-    stock_maximo: i64,
-    descripcion: Option<&str>,
-) -> Result<(), DbError> {
+    costo: Option<f64>,
+    stock_actual: f64,
+    stock_minimo: f64,
+    stock_maximo: f64,
+    unidad_medida: &str,
+    ubicacion: Option<&str>,
+) -> Result<i64, DbError> {
     conn.execute(
         "INSERT OR IGNORE INTO productos
-            (codigo, nombre, descripcion, categoria_id, stock_actual, stock_minimo, stock_maximo, precio)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+            (codigo, nombre, descripcion, categoria_id, precio, costo,
+             stock_actual, stock_minimo, stock_maximo, ubicacion, unidad_medida)
+         VALUES (?1,?2,NULL,?3,?4,?5,?6,?7,?8,?9,?10)",
         params![
-            codigo, nombre, descripcion, categoria_id,
-            stock_actual, stock_minimo, stock_maximo, precio
+            codigo, nombre, categoria_id, precio, costo,
+            stock_actual, stock_minimo, stock_maximo, ubicacion, unidad_medida
         ],
     )?;
-    Ok(())
+    Ok(conn.last_insert_rowid())
 }
 
 /// Timestamp ISO-8601 UTC (tipo texto), equivalente a datetime.utcnow() de Python.
@@ -351,6 +435,125 @@ pub fn futuro_90_dias_iso8601() -> String {
     (chrono::Utc::now() + chrono::Duration::days(90))
         .format("%Y-%m-%dT%H:%M:%SZ")
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        migrar_columnas_configuracion_empresa, migrar_columnas_productos,
+        migrar_columnas_unidad_medida,
+    };
+    use rusqlite::Connection;
+
+    #[test]
+    fn migracion_producto_agrega_campos_sin_perder_datos_y_es_repetible() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE productos (id INTEGER PRIMARY KEY, codigo TEXT, precio REAL);
+             INSERT INTO productos (codigo, precio) VALUES ('P-001', 1250.0);",
+        )
+        .unwrap();
+
+        migrar_columnas_productos(&conn).unwrap();
+        migrar_columnas_productos(&conn).unwrap();
+
+        let producto: (String, f64, Option<f64>, Option<String>) = conn
+            .query_row(
+                "SELECT codigo, precio, costo, ubicacion FROM productos WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(producto, ("P-001".to_string(), 1250.0, None, None));
+    }
+
+    #[test]
+    fn migracion_perfil_negocio_conserva_configuracion_existente_y_es_repetible() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE configuracion_empresa (
+                id INTEGER PRIMARY KEY,
+                nit TEXT NOT NULL,
+                nombre_empresa TEXT NOT NULL
+             );
+             INSERT INTO configuracion_empresa (nit, nombre_empresa)
+             VALUES ('900123456-7', 'Mi negocio');",
+        )
+        .unwrap();
+
+        migrar_columnas_configuracion_empresa(&conn).unwrap();
+        migrar_columnas_configuracion_empresa(&conn).unwrap();
+
+        let config: (String, String, String, i64) = conn
+            .query_row(
+                "SELECT nit, nombre_empresa, tipo_negocio, aplica_iva FROM configuracion_empresa WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            config,
+            (
+                "900123456-7".to_string(),
+                "Mi negocio".to_string(),
+                "general".to_string(),
+                0
+            )
+        );
+    }
+
+    #[test]
+    fn migracion_unidades_conserva_registros_y_admite_stock_decimal_en_bases_existentes() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE productos (id INTEGER PRIMARY KEY, stock_actual INTEGER NOT NULL);
+             CREATE TABLE movimientos (id INTEGER PRIMARY KEY, cantidad INTEGER NOT NULL);
+             CREATE TABLE factura_items (id INTEGER PRIMARY KEY, cantidad INTEGER NOT NULL);
+             INSERT INTO productos (stock_actual) VALUES (2);
+             INSERT INTO movimientos (cantidad) VALUES (1);
+             INSERT INTO factura_items (cantidad) VALUES (1);",
+        )
+        .unwrap();
+        migrar_columnas_unidad_medida(&conn).unwrap();
+        migrar_columnas_unidad_medida(&conn).unwrap();
+        conn.execute("UPDATE movimientos SET cantidad = 0.25 WHERE id = 1", [])
+            .unwrap();
+        conn.execute("UPDATE factura_items SET cantidad = 0.75 WHERE id = 1", [])
+            .unwrap();
+        conn.execute(
+            "UPDATE productos SET stock_actual = ?1 WHERE id = 1",
+            [1.75_f64],
+        )
+        .unwrap();
+
+        let (stock, unidad): (f64, String) = conn
+            .query_row(
+                "SELECT stock_actual, unidad_medida FROM productos WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert!((stock - 1.75).abs() < 0.000001);
+        assert_eq!(unidad, "unidad");
+        let (cantidad_movimiento, unidad_movimiento): (f64, String) = conn
+            .query_row(
+                "SELECT cantidad, unidad_medida FROM movimientos WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        let (cantidad_factura, unidad_factura): (f64, String) = conn
+            .query_row(
+                "SELECT cantidad, unidad_medida FROM factura_items WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert!((cantidad_movimiento - 0.25).abs() < 0.000001);
+        assert!((cantidad_factura - 0.75).abs() < 0.000001);
+        assert_eq!(unidad_movimiento, "unidad");
+        assert_eq!(unidad_factura, "unidad");
+    }
 }
 
 /// Devuelve el número de usuarios que hay (para detectar si ya hay seed).

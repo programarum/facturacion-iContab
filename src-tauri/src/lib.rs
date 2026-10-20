@@ -6,18 +6,29 @@ use std::path::PathBuf;
 
 // Módulos del backend Rust
 mod commands;
+mod backup;
 mod db;
+#[cfg(feature = "demo")]
+mod demo;
 mod fiscal;
+mod license;
 mod security;
+mod seed;
 mod state;
+mod units;
 
 use state::AppState;
 
 // ==================== MÓDULOS DE COMANDOS ====================
+use commands::ajustes::{
+    crear_respaldo_ahora, guardar_configuracion_negocio, guardar_directorio_respaldos,
+    obtener_configuracion_negocio, obtener_configuracion_respaldos,
+};
 use commands::auth::{login, logout, me, refresh};
 use commands::catalogo::{
     listar_categorias, crear_categoria, actualizar_categoria, eliminar_categoria,
-    listar_productos, buscar_productos, crear_producto, actualizar_producto, eliminar_producto,
+    listar_productos, buscar_productos, crear_producto, importar_productos, actualizar_producto,
+    eliminar_producto,
 };
 use commands::movimientos::{listar_movimientos, registrar_movimiento};
 use commands::usuarios::{listar_usuarios, crear_usuario, actualizar_usuario, cambiar_password};
@@ -26,6 +37,7 @@ use commands::facturacion::{
     listar_clientes, crear_cliente, listar_facturas, listar_facturas_historial, obtener_factura, crear_factura,
     obtener_configuracion,
 };
+use license::{activar_licencia_online, importar_licencia_offline, obtener_estado_licencia};
 
 // ==================== PRINTER ====================
 
@@ -297,96 +309,21 @@ fn enviar_a_impresora(contenido: &[u8], nombre_impresora: &str) -> Result<(), St
     Ok(())
 }
 
-// ==================== SEED INICIAL ====================
-
-fn seed_inicial(app: &tauri::AppHandle, conn: &mut rusqlite::Connection) -> Result<(), String> {
-    if db::hay_usuarios(conn).map_err(|e| e.to_string())? {
-        log::info!("[SEED] La base ya tiene datos, omitiendo seed.");
-        return Ok(());
-    }
-
-    // 1. Usuarios
-    let (admin_hash, admin_salt) = security::hash_password("Admin123!")?;
-    let (mod_hash, mod_salt) = security::hash_password("Mod1234!")?;
-    let (user_hash, user_salt) = security::hash_password("User123!")?;
-
-    db::insertar_usuario(conn, "admin", "admin@empresa.com", "Administrador", &admin_hash, &admin_salt, "admin").map_err(|e| e.to_string())?;
-    db::insertar_usuario(conn, "moderador", "mod@empresa.com", "Moderador Principal", &mod_hash, &mod_salt, "moderador").map_err(|e| e.to_string())?;
-    db::insertar_usuario(conn, "usuario", "user@empresa.com", "Usuario Estándar", &user_hash, &user_salt, "usuario").map_err(|e| e.to_string())?;
-
-    // 2. Configuración empresa
-    db::insertar_config_empresa(
-        conn,
-        "9001234567",
-        "Tu Empresa SAS",
-        "Tu Empresa Soluciones Avanzadas SAS",
-        "Calle 123 # 45-67, Bogotá D.C.",
-        "601-1234567",
-        "facturacion@empresa.com",
-        "12345678-1234-1234-1234-123456789012",
-        "12345",
-        "SET",
-        1,
-        1000000,
-        "18760000001",
-        "2026-01-15",
-        "2027-01-15",
-    )
-    .map_err(|e| e.to_string())?;
-
-    // 3. Categorías
-    let cat_elec = db::insertar_categoria(conn, "Electrónica", "Productos electrónicos y tecnología").map_err(|e| e.to_string())?;
-    let cat_oficina = db::insertar_categoria(conn, "Oficina", "Artículos de oficina y papelería").map_err(|e| e.to_string())?;
-    let cat_muebles = db::insertar_categoria(conn, "Muebles", "Mobiliario de oficina").map_err(|e| e.to_string())?;
-
-    // 4. Productos
-    db::insertar_producto(conn, "MOU001", "Mouse Inalámbrico Logitech", cat_elec, 45000.0, 50, 10, 100, None).map_err(|e| e.to_string())?;
-    db::insertar_producto(conn, "TEC001", "Teclado Mecánico RGB", cat_elec, 120000.0, 30, 5, 50, None).map_err(|e| e.to_string())?;
-    db::insertar_producto(conn, "USB001", "Cable USB Tipo C 2m", cat_elec, 15000.0, 100, 20, 200, None).map_err(|e| e.to_string())?;
-    db::insertar_producto(conn, "PAQ001", "Resma Papel A4 500h", cat_oficina, 25000.0, 200, 50, 500, None).map_err(|e| e.to_string())?;
-    db::insertar_producto(conn, "ESC001", "Escritorio Ejecutivo", cat_muebles, 350000.0, 15, 3, 30, None).map_err(|e| e.to_string())?;
-
-    let _ = app;
-    log::info!("[SEED] Datos iniciales creados correctamente.");
-    Ok(())
-}
-
 // ==================== APP ENTRY ====================
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
-        .manage(PrinterState {
-            config: std::sync::Mutex::new(PrinterConfig {
-                nombre: "Generic / Text Only".to_string(),
-                tipo: "pdf".to_string(),
-                ancho_caracteres: 32,
-            }),
-        })
-        .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
-
-            // Abrir base de datos persistente y sembrar datos iniciales
-            let conn = db::abrir_conexion_app(app.handle(), "facticontab.db")
-                .map_err(|e| format!("Error abriendo base de datos: {}", e))?;
-            let mut conn_mut = conn;
-            if let Err(e) = seed_inicial(app.handle(), &mut conn_mut) {
-                log::error!("Error en seed inicial: {}", e);
-            }
-
-            let app_state = AppState::new(conn_mut);
-            app.manage(app_state);
-
-            Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![
+// Comandos expuestos al frontend. El parámetro opcional permite añadir
+// comandos que solo existen en el build de demostración (feature `demo`).
+macro_rules! manejadores_invoke {
+    ($($demo:path),*) => {
+        tauri::generate_handler![
+            obtener_estado_licencia,
+            activar_licencia_online,
+            importar_licencia_offline,
+            obtener_configuracion_respaldos,
+            guardar_directorio_respaldos,
+            crear_respaldo_ahora,
+            obtener_configuracion_negocio,
+            guardar_configuracion_negocio,
             // Autenticación
             login,
             logout,
@@ -400,6 +337,7 @@ pub fn run() {
             listar_productos,
             buscar_productos,
             crear_producto,
+            importar_productos,
             actualizar_producto,
             eliminar_producto,
             // Movimientos
@@ -424,7 +362,79 @@ pub fn run() {
             obtener_impresoras,
             configurar_impresora,
             imprimir_ticket
-        ])
+            $(, $demo)*
+        ]
+    };
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .manage(PrinterState {
+            config: std::sync::Mutex::new(PrinterConfig {
+                nombre: "Generic / Text Only".to_string(),
+                tipo: "pdf".to_string(),
+                ancho_caracteres: 32,
+            }),
+        })
+        .setup(|app| {
+            if cfg!(debug_assertions) {
+                app.handle().plugin(
+                    tauri_plugin_log::Builder::default()
+                        .level(log::LevelFilter::Info)
+                        .build(),
+                )?;
+            }
+
+            // Abrir base de datos persistente y sembrar datos iniciales
+            let conn = db::abrir_conexion_app(app.handle(), "facticontab.db")
+                .map_err(|e| format!("Error abriendo base de datos: {}", e))?;
+            let mut conn_mut = conn;
+            if let Err(e) = seed::seed_inicial(app.handle(), &mut conn_mut) {
+                log::error!("Error en seed inicial: {}", e);
+            }
+
+            let backup_status = match backup::directorio_configurado(&conn_mut) {
+                Ok(Some(directory)) => match backup::crear_respaldo(&conn_mut, &directory) {
+                    Ok(path) => format!("Respaldo creado correctamente: {}", path.display()),
+                    Err(error) => {
+                        log::warn!("No se pudo crear el respaldo de inicio: {}", error);
+                        format!("No se pudo crear el respaldo de inicio: {error}")
+                    }
+                },
+                Ok(None) => "Carpeta de respaldos sin configurar.".to_string(),
+                Err(error) => {
+                    log::warn!("No se pudo leer la configuración de respaldos: {}", error);
+                    format!("No se pudo leer la configuración de respaldos: {error}")
+                }
+            };
+
+            let app_state = AppState::new(conn_mut, backup_status);
+            app.manage(app_state);
+
+            // Build de demostración: registrar el primer arranque para contar
+            // los `DEMO_DIAS` días de vigencia (no aplica al build normal).
+            #[cfg(feature = "demo")]
+            {
+                if let Err(e) = demo::registrar_inicio(app.handle()) {
+                    log::warn!("No se pudo registrar el inicio del demo: {}", e);
+                }
+            }
+
+            Ok(())
+        });
+
+    // El build normal no compila ni registra nada del demo; el build demo
+    // añade además el comando de vencimiento.
+    #[cfg(feature = "demo")]
+    let builder = builder.invoke_handler(manejadores_invoke![demo::obtener_estado_demo]);
+
+    #[cfg(not(feature = "demo"))]
+    let builder = builder.invoke_handler(manejadores_invoke![]);
+
+    builder
         .run(tauri::generate_context!())
         .expect("Error al iniciar Tauri");
 }

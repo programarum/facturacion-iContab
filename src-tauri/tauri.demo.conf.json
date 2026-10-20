@@ -1,0 +1,23 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "icontab-facturacion-demo",
+  "identifier": "com.icontab-facturacion.demo",
+  "build": {
+    "beforeDevCommand": "pnpm dev:demo",
+    "beforeBuildCommand": "pnpm build:demo"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Facturacion - iContab DEMO",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 640,
+        "minHeight": 360,
+        "resizable": true,
+        "fullscreen": false,
+        "maximized": true
+      }
+    ]
+  }
+}

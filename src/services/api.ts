@@ -1,5 +1,36 @@
 import { tauriInvoke } from './auth';
 
+export type UnidadMedida = 'unidad' | 'kg' | 'g' | 'l' | 'ml';
+
+export interface ProductoImportarFila {
+  codigo: string;
+  nombre: string;
+  categoria?: string;
+  descripcion?: string;
+  unidad_medida: UnidadMedida;
+  costo: number | null;
+  precio: number;
+  stock_actual: number;
+  stock_minimo?: number;
+  stock_maximo?: number;
+  ubicacion?: string;
+}
+
+export interface ResultadoImportacionProductos {
+  insertados: number;
+  omitidos: { codigo: string; nombre: string; motivo: string }[];
+}
+
+export interface MovimientosListaPaginada<T = any> {
+  movimientos: T[];
+  total: number;
+}
+
+export interface ProductosListaPaginada<T = any> {
+  productos: T[];
+  total: number;
+}
+
 // ==================== PRODUCTOS ====================
 
 export const productosAPI = {
@@ -10,7 +41,7 @@ export const productosAPI = {
     stock_bajo?: boolean;
     sin_stock?: boolean;
     busqueda?: string;
-  }) => {
+  }): Promise<ProductosListaPaginada> => {
     const params_req = {
       skip: params?.skip,
       limit: params?.limit,
@@ -19,7 +50,7 @@ export const productosAPI = {
       sin_stock: params?.sin_stock,
       busqueda: params?.busqueda,
     };
-    return tauriInvoke('listar_productos', { params_req });
+    return tauriInvoke('listar_productos', { paramsReq: params_req });
   },
 
   buscar: async (q: string) => {
@@ -35,9 +66,15 @@ export const productosAPI = {
     stock_actual: number;
     stock_minimo?: number;
     stock_maximo?: number;
+    unidad_medida: UnidadMedida;
+    costo?: number | null;
+    ubicacion?: string | null;
   }) => {
     return tauriInvoke('crear_producto', { req: { ...producto } });
   },
+
+  importar: async (productos: ProductoImportarFila[]): Promise<ResultadoImportacionProductos> =>
+    tauriInvoke('importar_productos', { req: { productos } }),
 
   actualizar: async (id: number, datos: any) => {
     return tauriInvoke('actualizar_producto', { id, req: { ...datos } });
@@ -76,14 +113,16 @@ export const movimientosAPI = {
     limit?: number;
     tipo?: string;
     producto_id?: number;
-  }) => {
+    hoy?: boolean;
+  }): Promise<MovimientosListaPaginada> => {
     const params_req = {
       skip: params?.skip,
       limit: params?.limit,
       tipo: params?.tipo,
       producto_id: params?.producto_id,
+      hoy: params?.hoy,
     };
-    return tauriInvoke('listar_movimientos', { params_req });
+    return tauriInvoke('listar_movimientos', { paramsReq: params_req });
   },
 
   crear: async (movimiento: {
@@ -177,6 +216,27 @@ export const facturacionAPI = {
       return tauriInvoke('obtener_configuracion');
     },
   },
+};
+
+// ==================== PERFIL DEL NEGOCIO ====================
+
+export interface ConfiguracionNegocio {
+  nit: string;
+  nombre_empresa: string;
+  razon_social: string;
+  direccion: string;
+  telefono: string;
+  email: string;
+  tipo_negocio: 'general' | 'panaderia' | 'legumbreria' | 'farmacia' | 'tienda_agricola' | 'tienda_mixta';
+  aplica_iva: boolean;
+}
+
+export const configuracionNegocioAPI = {
+  obtener: async (): Promise<ConfiguracionNegocio> =>
+    tauriInvoke('obtener_configuracion_negocio'),
+
+  guardar: async (configuracion: ConfiguracionNegocio): Promise<ConfiguracionNegocio> =>
+    tauriInvoke('guardar_configuracion_negocio', { req: configuracion }),
 };
 
 // ==================== DASHBOARD ====================

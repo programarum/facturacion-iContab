@@ -5,10 +5,9 @@ pub use rust_decimal::Decimal;
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive, Zero};
 use sha2::{Sha384, Digest};
 
-/// Tasa de IVA Colombia (19%).
+/// Tasa de IVA Colombia (19%), aplicada solo cuando el negocio tiene IVA activo.
 pub const IVA_TASA_STR: &str = "0.19";
-#[allow(dead_code)]
-pub const IVA_PORCENTAJE_STR: &str = "19.00";
+pub const IVA_PORCENTAJE_F64: f64 = 19.0;
 
 /// Redondeo a 2 decimales con ROUND_HALF_UP (como Decimal.quantize de Python).
 /// rust_decimal.round() redondea al entero más cercano, con empates lejos de cero
@@ -21,17 +20,23 @@ fn redondear(valor: Decimal) -> Decimal {
 }
 
 /// Calcula los valores de un ítem de factura. Precio unitario debe venir SIN IVA.
+/// El IVA (19%) solo se aplica cuando `aplica_iva` es verdadero.
 /// Replica CalculosFiscalesColombia.calcular_item.
 pub fn calcular_item(
-    cantidad: i64,
+    cantidad: Decimal,
     precio_unitario: Decimal,
     descuento: Decimal,
+    aplica_iva: bool,
 ) -> (Decimal, Decimal, Decimal) {
     // subtotal = cantidad * precio_unitario - descuento
-    let mut subtotal = Decimal::from(cantidad) * precio_unitario - descuento;
+    let mut subtotal = cantidad * precio_unitario - descuento;
     subtotal = redondear(subtotal);
 
-    let iva = redondear(subtotal * Decimal::from_str_radix(IVA_TASA_STR, 10).unwrap());
+    let iva = if aplica_iva {
+        redondear(subtotal * Decimal::from_str_radix(IVA_TASA_STR, 10).unwrap())
+    } else {
+        Decimal::zero()
+    };
     let total = redondear(subtotal + iva);
 
     (subtotal, iva, total)
@@ -39,13 +44,16 @@ pub fn calcular_item(
 
 /// Calcula los totales de la factura. Replica CalculosFiscalesColombia.calcular_factura.
 /// items: lista de (cantidad, precio_unitario, descuento).
-pub fn calcular_factura(items: &[(i64, Decimal, Decimal)]) -> (Decimal, Decimal, Decimal, Decimal) {
+pub fn calcular_factura(
+    items: &[(Decimal, Decimal, Decimal)],
+    aplica_iva: bool,
+) -> (Decimal, Decimal, Decimal, Decimal) {
     let mut subtotal = Decimal::zero();
     let mut total_descuento = Decimal::zero();
     let mut total_iva = Decimal::zero();
 
     for (cantidad, precio, desc) in items {
-        let (sub, iva, _total) = calcular_item(*cantidad, *precio, *desc);
+        let (sub, iva, _total) = calcular_item(*cantidad, *precio, *desc, aplica_iva);
         subtotal += sub;
         total_descuento += *desc;
         total_iva += iva;
@@ -125,4 +133,37 @@ pub fn decimal_from_f64(v: f64) -> Decimal {
 
 pub fn decimal_to_f64(v: Decimal) -> f64 {
     v.to_f64().unwrap_or(0.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{calcular_item, Decimal};
+
+    #[test]
+    fn calcula_importes_de_una_cantidad_fraccionaria() {
+        let (subtotal, iva, total) = calcular_item(
+            Decimal::new(75, 2),
+            Decimal::from(4000),
+            Decimal::ZERO,
+            true,
+        );
+
+        assert_eq!(subtotal, Decimal::from(3000));
+        assert_eq!(iva, Decimal::from(570));
+        assert_eq!(total, Decimal::from(3570));
+    }
+
+    #[test]
+    fn sin_iva_el_total_iguala_el_subtotal() {
+        let (subtotal, iva, total) = calcular_item(
+            Decimal::new(75, 2),
+            Decimal::from(4000),
+            Decimal::ZERO,
+            false,
+        );
+
+        assert_eq!(subtotal, Decimal::from(3000));
+        assert_eq!(iva, Decimal::ZERO);
+        assert_eq!(total, Decimal::from(3000));
+    }
 }

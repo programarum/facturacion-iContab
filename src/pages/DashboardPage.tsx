@@ -35,10 +35,10 @@ const DashboardPage = () => {
   };
 
   return (
-    <div>
+    <div className="h-full min-h-0 overflow-y-auto overscroll-contain">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">Dashboard</h1>
 
-      <div className="bg-white rounded-lg shadow p-6 mb-6">
+      <div className="mb-6 rounded-lg bg-white p-4 shadow sm:p-6">
         <h2 className="text-lg font-semibold text-gray-800">Bienvenido, {user?.username}</h2>
         <p className="text-gray-500 capitalize">Rol: {user?.rol}</p>
       </div>
@@ -54,7 +54,11 @@ const DashboardPage = () => {
         <p className="text-gray-500">Cargando estadisticas...</p>
       ) : stats ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white rounded-lg shadow p-6">
+          <Link
+            to="/productos"
+            aria-label={`Ver todos los productos: ${stats.total_productos}`}
+            className="rounded-lg bg-white p-4 shadow transition hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 sm:p-6"
+          >
             <div className="flex items-center">
               <div className="p-3 bg-blue-100 rounded-full">
                 <span className="text-2xl">📦</span>
@@ -64,9 +68,13 @@ const DashboardPage = () => {
                 <p className="text-2xl font-bold text-gray-900">{stats.total_productos}</p>
               </div>
             </div>
-          </div>
+          </Link>
 
-          <div className="bg-white rounded-lg shadow p-6">
+          <Link
+            to="/movimientos?hoy=1"
+            aria-label={`Ver movimientos de hoy: ${stats.movimientos_hoy}`}
+            className="rounded-lg bg-white p-4 shadow transition hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 sm:p-6"
+          >
             <div className="flex items-center">
               <div className="p-3 bg-green-100 rounded-full">
                 <span className="text-2xl">🔄</span>
@@ -76,9 +84,13 @@ const DashboardPage = () => {
                 <p className="text-2xl font-bold text-gray-900">{stats.movimientos_hoy}</p>
               </div>
             </div>
-          </div>
+          </Link>
 
-          <div className="bg-white rounded-lg shadow p-6">
+          <Link
+            to="/productos?stock=bajo"
+            aria-label={`Ver productos con stock bajo: ${stats.stock_bajo}`}
+            className="rounded-lg bg-white p-4 shadow transition hover:shadow-md focus:outline-none focus:ring-2 focus:ring-yellow-500 sm:p-6"
+          >
             <div className="flex items-center">
               <div className="p-3 bg-yellow-100 rounded-full">
                 <span className="text-2xl">⚠️</span>
@@ -88,9 +100,13 @@ const DashboardPage = () => {
                 <p className="text-2xl font-bold text-yellow-600">{stats.stock_bajo}</p>
               </div>
             </div>
-          </div>
+          </Link>
 
-          <div className="bg-white rounded-lg shadow p-6">
+          <Link
+            to="/productos?stock=sin_stock"
+            aria-label={`Ver productos sin stock: ${stats.sin_stock}`}
+            className="rounded-lg bg-white p-4 shadow transition hover:shadow-md focus:outline-none focus:ring-2 focus:ring-red-500 sm:p-6"
+          >
             <div className="flex items-center">
               <div className="p-3 bg-red-100 rounded-full">
                 <span className="text-2xl">🚫</span>
@@ -100,7 +116,7 @@ const DashboardPage = () => {
                 <p className="text-2xl font-bold text-red-600">{stats.sin_stock}</p>
               </div>
             </div>
-          </div>
+          </Link>
         </div>
       ) : (
         <p className="text-gray-500">No hay estadisticas disponibles</p>
